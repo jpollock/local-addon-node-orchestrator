@@ -1,0 +1,63 @@
+{
+  "name": "@local/node-orchestrator",
+  "productName": "Node.js Orchestrator",
+  "version": "1.0.2",
+  "description": "Manage Node.js applications alongside WordPress sites in Local",
+  "main": "lib/main.js",
+  "renderer": "lib/renderer.js",
+  "scripts": {
+    "build": "npm run clean && npm run compile",
+    "build:minimal": "npm run clean && npm run compile",
+    "compile": "tsc -p .",
+    "watch": "tsc -p . --watch",
+    "clean": "rm -rf lib",
+    "dev": "npm run watch",
+    "test": "jest",
+    "type-check": "tsc --noEmit",
+    "lint": "eslint src/**/*.{ts,tsx}",
+    "postinstall": "npm run build:minimal"
+  },
+  "keywords": [
+    "local-addon",
+    "wordpress",
+    "node",
+    "orchestrator"
+  ],
+  "author": "Local",
+  "license": "MIT",
+  "devDependencies": {
+    "@getflywheel/local": "^6.0.0",
+    "@testing-library/jest-dom": "^6.1.5",
+    "@testing-library/react": "^14.1.2",
+    "@types/fs-extra": "^11.0.4",
+    "@types/jest": "^29.5.11",
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "@types/uuid": "^9.0.7",
+    "@typescript-eslint/eslint-plugin": "^6.15.0",
+    "@typescript-eslint/parser": "^6.15.0",
+    "eslint": "^8.56.0",
+    "jest": "^29.7.0",
+    "jest-environment-jsdom": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "typescript": "^5.3.3"
+  },
+  "dependencies": {
+    "@getflywheel/local-components": "^16.0.0",
+    "fs-extra": "^11.2.0",
+    "simple-git": "^3.21.0",
+    "tree-kill": "^1.2.2",
+    "uuid": "^9.0.1",
+    "winston": "^3.11.0"
+  },
+  "peerDependencies": {
+    "react": "^18.0.0",
+    "react-dom": "^18.0.0"
+  },
+  "local": {
+    "type": "addon",
+    "name": "Node.js Orchestrator",
+    "description": "Manage Node.js applications alongside WordPress sites"
+  }
+}
