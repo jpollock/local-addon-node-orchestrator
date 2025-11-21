@@ -16,6 +16,7 @@ export default function (context: any): void {
       state = {
         testResult: '',
         showForm: false,
+        editingAppId: null,
         loading: false,
         apps: [],
         formData: {
@@ -185,6 +186,79 @@ export default function (context: any): void {
         }
       };
 
+      handleEditApp = (app: any) => {
+        this.setState({
+          editingAppId: app.id,
+          showForm: true,
+          formData: {
+            name: app.name,
+            gitUrl: app.gitUrl,
+            branch: app.branch,
+            installCommand: app.installCommand,
+            buildCommand: app.buildCommand || '',
+            startCommand: app.startCommand,
+            nodeVersion: app.nodeVersion,
+            autoStart: app.autoStart
+          }
+        });
+      };
+
+      handleUpdateApp = async (e: any) => {
+        e.preventDefault();
+        this.setState({ loading: true, testResult: '' });
+
+        try {
+          const electron = context.electron || (window as any).electron;
+          const response = await electron.ipcRenderer.invoke('node-orchestrator:update-app', {
+            siteId: site.id,
+            appId: this.state.editingAppId,
+            updates: this.state.formData
+          });
+
+          if (response.success) {
+            this.setState({
+              testResult: `✅ App "${response.app.name}" updated successfully!`,
+              showForm: false,
+              editingAppId: null,
+              formData: {
+                name: '',
+                gitUrl: '',
+                branch: 'main',
+                installCommand: '',
+                buildCommand: '',
+                startCommand: 'npm start',
+                nodeVersion: '20.x',
+                autoStart: false
+              }
+            });
+            await this.loadApps();
+          } else {
+            this.setState({ testResult: `❌ Failed to update app: ${response.error}` });
+          }
+        } catch (error: any) {
+          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } finally {
+          this.setState({ loading: false });
+        }
+      };
+
+      handleCancelEdit = () => {
+        this.setState({
+          showForm: false,
+          editingAppId: null,
+          formData: {
+            name: '',
+            gitUrl: '',
+            branch: 'main',
+            installCommand: '',
+            buildCommand: '',
+            startCommand: 'npm start',
+            nodeVersion: '20.x',
+            autoStart: false
+          }
+        });
+      };
+
       render() {
         const { name, domain } = this.props.site;
         const { showForm, testResult } = this.state;
@@ -206,7 +280,7 @@ export default function (context: any): void {
               style: { padding: '8px 16px', backgroundColor: '#666', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }
             }, 'Refresh'),
             React.createElement('button', {
-              onClick: () => this.setState({ showForm: !showForm }),
+              onClick: () => showForm ? this.handleCancelEdit() : this.setState({ showForm: true, editingAppId: null }),
               style: { padding: '8px 16px', backgroundColor: '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }
             }, showForm ? 'Cancel' : 'Add Node.js App')
           ),
@@ -219,12 +293,14 @@ export default function (context: any): void {
       }
 
       renderForm() {
-        const { formData, loading } = this.state;
+        const { formData, loading, editingAppId } = this.state;
+        const isEditing = editingAppId !== null;
+
         return React.createElement('form', {
-          onSubmit: this.handleAddApp,
+          onSubmit: isEditing ? this.handleUpdateApp : this.handleAddApp,
           style: { backgroundColor: 'white', padding: '20px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #ddd' }
         },
-          React.createElement('h4', { style: { marginTop: 0 } }, 'Add New Node.js App'),
+          React.createElement('h4', { style: { marginTop: 0 } }, isEditing ? 'Edit Node.js App' : 'Add New Node.js App'),
           this.renderInput('App Name *', 'name', formData.name, 'my-app', true, 'Lowercase, numbers, dashes only'),
           this.renderInput('Git Repository URL *', 'gitUrl', formData.gitUrl, 'https://github.com/user/repo.git', true),
           this.renderInput('Branch', 'branch', formData.branch, 'main'),
@@ -247,11 +323,19 @@ export default function (context: any): void {
               'Auto-start when site starts'
             )
           ),
-          React.createElement('button', {
-            type: 'submit',
-            disabled: loading,
-            style: { padding: '10px 20px', backgroundColor: loading ? '#ccc' : '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '16px' }
-          }, loading ? 'Adding...' : 'Add App')
+          React.createElement('div', { style: { display: 'flex', gap: '10px' } },
+            React.createElement('button', {
+              type: 'submit',
+              disabled: loading,
+              style: { padding: '10px 20px', backgroundColor: loading ? '#ccc' : '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '16px' }
+            }, loading ? (isEditing ? 'Updating...' : 'Adding...') : (isEditing ? 'Update App' : 'Add App')),
+            React.createElement('button', {
+              type: 'button',
+              onClick: this.handleCancelEdit,
+              disabled: loading,
+              style: { padding: '10px 20px', backgroundColor: '#666', color: 'white', border: 'none', borderRadius: '4px', cursor: loading ? 'not-allowed' : 'pointer', fontSize: '16px' }
+            }, 'Cancel')
+          )
         );
       }
 
@@ -322,6 +406,10 @@ export default function (context: any): void {
                       onClick: () => this.handleStopApp(app.id),
                       style: { padding: '6px 12px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
                     }, 'Stop'),
+                    React.createElement('button', {
+                      onClick: () => this.handleEditApp(app),
+                      style: { padding: '6px 12px', backgroundColor: '#007cba', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
+                    }, 'Edit'),
                     React.createElement('button', {
                       onClick: () => this.handleRemoveApp(app.id, app.name),
                       style: { padding: '6px 12px', backgroundColor: '#666', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
