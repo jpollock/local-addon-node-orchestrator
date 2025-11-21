@@ -190,6 +190,10 @@ export default function (context: any): void {
               style: { padding: '8px 16px', backgroundColor: '#007cba', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }
             }, 'Test Connection'),
             React.createElement('button', {
+              onClick: this.loadApps,
+              style: { padding: '8px 16px', backgroundColor: '#666', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }
+            }, 'Refresh'),
+            React.createElement('button', {
               onClick: () => this.setState({ showForm: !showForm }),
               style: { padding: '8px 16px', backgroundColor: '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }
             }, showForm ? 'Cancel' : 'Add Node.js App')
