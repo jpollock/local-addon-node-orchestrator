@@ -13,6 +13,7 @@ import {
   GetAppsRequestSchema,
   GetLogsRequestSchema,
   UpdateEnvRequestSchema,
+  UpdateAppRequestSchema,
   validate
 } from './security/schemas';
 import { logAndSanitizeError } from './security/errors';
@@ -430,6 +431,56 @@ export default function (context: LocalMain.AddonMainContext): void {
       return { success: true };
     } catch (error: unknown) {
       const sanitizedError = logAndSanitizeError(localLogger, 'Failed to update app environment', error);
+      return {
+        success: false,
+        error: sanitizedError
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:update-app', async (_event, request: unknown) => {
+    try {
+      // Validate input
+      const validation = validate(UpdateAppRequestSchema, request);
+      if (!validation.success) {
+        localLogger.warn('Invalid update-app request', { validationError: validation.error });
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for update-app request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
+      localLogger.info('Updating app configuration', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId,
+        updates: Object.keys(validatedRequest.updates)
+      });
+
+      const app = await appManager.updateApp(
+        validatedRequest.siteId,
+        site.path,
+        validatedRequest.appId,
+        validatedRequest.updates
+      );
+
+      localLogger.info('Successfully updated app configuration', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
+      return {
+        success: true,
+        app
+      };
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to update app configuration', error);
       return {
         success: false,
         error: sanitizedError

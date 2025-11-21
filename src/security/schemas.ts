@@ -156,6 +156,28 @@ export const UpdateEnvRequestSchema = z.object({
 });
 
 /**
+ * Schema for updating an app's configuration
+ */
+export const UpdateAppRequestSchema = z.object({
+  siteId: siteIdSchema,
+  appId: appIdSchema,
+  updates: z.object({
+    name: appNameSchema.optional(),
+    gitUrl: gitUrlSchema.optional(),
+    branch: branchSchema.optional(),
+    installCommand: autoDetectCommandSchema.optional(),
+    buildCommand: optionalCommandSchema.optional(),
+    startCommand: commandSchema.optional(),
+    nodeVersion: nodeVersionSchema.optional(),
+    autoStart: z.boolean().optional(),
+    env: envSchema.optional()
+  }).refine(
+    (data) => Object.keys(data).length > 0,
+    'At least one field must be updated'
+  )
+});
+
+/**
  * Helper function to validate data against a schema
  */
 export function validate<T>(

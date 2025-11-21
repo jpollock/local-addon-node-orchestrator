@@ -167,6 +167,48 @@ export class NodeAppManager {
   }
 
   /**
+   * Update an app's configuration
+   */
+  async updateApp(
+    siteId: string,
+    sitePath: string,
+    appId: string,
+    updates: Partial<Omit<NodeApp, 'id' | 'path' | 'createdAt' | 'status' | 'pid'>>
+  ): Promise<NodeApp> {
+    const app = await this.configManager.getApp(siteId, sitePath, appId);
+
+    if (!app) {
+      throw new Error(`App ${appId} not found`);
+    }
+
+    const wasRunning = app.status === 'running';
+
+    // Stop app if running (will be restarted after update if needed)
+    if (wasRunning) {
+      await this.stopApp(siteId, sitePath, appId);
+    }
+
+    // Apply updates
+    const updatedApp = {
+      ...app,
+      ...updates,
+      updatedAt: new Date()
+    };
+
+    // Save updated configuration
+    await this.configManager.saveApp(siteId, sitePath, updatedApp);
+
+    console.log(`[NodeAppManager] Updated app ${appId}`, updates);
+
+    // Restart if it was running
+    if (wasRunning) {
+      return await this.startApp(siteId, sitePath, appId);
+    }
+
+    return updatedApp;
+  }
+
+  /**
    * Remove an app and clean up its files
    */
   async removeApp(siteId: string, sitePath: string, appId: string): Promise<void> {
