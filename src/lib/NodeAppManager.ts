@@ -13,6 +13,7 @@ import { NodeApp, AddAppRequest } from '../types';
 import { GitManager, GitProgressEvent } from './GitManager';
 import { ConfigManager } from './ConfigManager';
 import { PortManager } from './PortManager';
+import { NpmManager } from './NpmManager';
 import { validateInstallCommand, validateStartCommand, validateBuildCommand } from '../security/validation';
 
 export interface InstallProgress {
@@ -25,12 +26,14 @@ export class NodeAppManager {
   private configManager: ConfigManager;
   private gitManager: GitManager;
   private portManager: PortManager;
+  private npmManager: NpmManager;
   private runningProcesses: Map<string, ChildProcess> = new Map();
 
   constructor(configManager: ConfigManager, gitManager: GitManager, portManager: PortManager) {
     this.configManager = configManager;
     this.gitManager = gitManager;
     this.portManager = portManager;
+    this.npmManager = new NpmManager();
   }
 
   /**
@@ -279,10 +282,24 @@ export class NodeAppManager {
 
       // Use validated and sanitized command
       let [command, ...args] = commandValidation.sanitizedCommand!;
+      let useShell = false;
 
-      // Use Local's bundled Node.js instead of system node
-      // This ensures end users don't need Node.js installed
-      if (command === 'node') {
+      // Handle package manager commands (npm, yarn, pnpm, npx)
+      if (NpmManager.isPackageManagerCommand(command)) {
+        const npmInfo = await this.npmManager.getNpmInfo();
+
+        if (npmInfo.type === 'bundled') {
+          // Use bundled npm with Local's Node.js
+          command = process.execPath;
+          args = [npmInfo.path, ...args];
+          console.log(`[NodeAppManager] Using bundled npm: ${npmInfo.path}`);
+        } else {
+          // Use system npm
+          useShell = true; // Need shell to find npm in PATH
+          console.log(`[NodeAppManager] Using system npm`);
+        }
+      } else if (command === 'node') {
+        // Use Local's bundled Node.js for direct node commands
         command = process.execPath;
         console.log(`[NodeAppManager] Using Local's bundled Node.js: ${command}`);
       }
@@ -321,10 +338,11 @@ export class NodeAppManager {
       logStream.write(`========================================\n\n`);
 
       // Spawn process with security: shell: false prevents command injection
+      // Exception: use shell for system npm commands to find them in PATH
       const child = spawn(command, args, {
         cwd: appDir,
         env,
-        shell: false, // Critical for security
+        shell: useShell, // Only true for system package managers
         detached: false
       });
 
@@ -612,16 +630,32 @@ export class NodeAppManager {
     try {
       const [command, ...args] = validation.sanitizedCommand!;
 
-      // Run install command
-      await this.runCommand(command, args, appPath, (output) => {
-        if (onProgress) {
-          onProgress({
-            phase: 'installing',
-            progress: 50, // Rough estimate
-            message: output
-          });
-        }
-      });
+      // Use NpmManager for package manager commands
+      if (NpmManager.isPackageManagerCommand(command)) {
+        await this.npmManager.runCommand(args, {
+          cwd: appPath,
+          onProgress: (output) => {
+            if (onProgress) {
+              onProgress({
+                phase: 'installing',
+                progress: 50, // Rough estimate
+                message: output
+              });
+            }
+          }
+        });
+      } else {
+        // Run other commands directly
+        await this.runCommand(command, args, appPath, (output) => {
+          if (onProgress) {
+            onProgress({
+              phase: 'installing',
+              progress: 50,
+              message: output
+            });
+          }
+        });
+      }
 
       return { success: true };
     } catch (error: any) {
@@ -657,16 +691,32 @@ export class NodeAppManager {
     try {
       const [command, ...args] = validation.sanitizedCommand;
 
-      // Run build command
-      await this.runCommand(command, args, appPath, (output) => {
-        if (onProgress) {
-          onProgress({
-            phase: 'building',
-            progress: 85, // Rough estimate
-            message: output
-          });
-        }
-      });
+      // Use NpmManager for package manager commands
+      if (NpmManager.isPackageManagerCommand(command)) {
+        await this.npmManager.runCommand(args, {
+          cwd: appPath,
+          onProgress: (output) => {
+            if (onProgress) {
+              onProgress({
+                phase: 'building',
+                progress: 85, // Rough estimate
+                message: output
+              });
+            }
+          }
+        });
+      } else {
+        // Run other commands directly
+        await this.runCommand(command, args, appPath, (output) => {
+          if (onProgress) {
+            onProgress({
+              phase: 'building',
+              progress: 85,
+              message: output
+            });
+          }
+        });
+      }
 
       return { success: true };
     } catch (error: any) {
