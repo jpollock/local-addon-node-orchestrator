@@ -2,6 +2,7 @@ import * as LocalMain from '@getflywheel/local/main';
 import * as Local from '@getflywheel/local';
 import * as path from 'path';
 import * as fs from 'fs-extra';
+import { ipcMain } from 'electron';
 import NodeOrchestratorService from './services/NodeOrchestratorService';
 import { GitManager } from './lib/GitManager';
 import { NodeAppManager } from './lib/NodeAppManager';
@@ -83,153 +84,132 @@ export default function (context: LocalMain.AddonMainContext): void {
   });
 
   // IPC Handlers
-  LocalMain.addIpcAsyncListener<AddAppRequest, AddAppResponse>(
-    'node-orchestrator:add-app',
-    async (request) => {
-      try {
-        const site = siteData.getSite(request.siteId);
-        if (!site) {
-          throw new Error(`Site ${request.siteId} not found`);
-        }
-
-        const app = await appManager.addApp(site, request.app);
-        
-        return {
-          success: true,
-          app
-        };
-      } catch (error) {
-        localLogger.error('Failed to add Node.js app', { error, request });
-        return {
-          success: false,
-          error: error.message
-        };
+  ipcMain.handle('node-orchestrator:add-app', async (_event, request: AddAppRequest) => {
+    try {
+      const site = siteData.getSite(request.siteId);
+      if (!site) {
+        throw new Error(`Site ${request.siteId} not found`);
       }
-    }
-  );
 
-  LocalMain.addIpcAsyncListener<RemoveAppRequest, AddAppResponse>(
-    'node-orchestrator:remove-app',
-    async (request) => {
-      try {
-        await appManager.removeApp(request.siteId, request.appId);
-        return { success: true };
-      } catch (error) {
-        localLogger.error('Failed to remove Node.js app', { error, request });
-        return {
-          success: false,
-          error: error.message
-        };
+      const app = await appManager.addApp(site, request.app);
+
+      return {
+        success: true,
+        app
+      };
+    } catch (error: any) {
+      localLogger.error('Failed to add Node.js app', { error, request });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:remove-app', async (_event, request: RemoveAppRequest) => {
+    try {
+      await appManager.removeApp(request.siteId, request.appId);
+      return { success: true };
+    } catch (error: any) {
+      localLogger.error('Failed to remove Node.js app', { error, request });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:start-app', async (_event, request: StartAppRequest) => {
+    try {
+      const app = await appManager.startApp(request.siteId, request.appId);
+      return {
+        success: true,
+        app
+      };
+    } catch (error: any) {
+      localLogger.error('Failed to start Node.js app', { error, request });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:stop-app', async (_event, request: StopAppRequest) => {
+    try {
+      const app = await appManager.stopApp(request.siteId, request.appId);
+      return {
+        success: true,
+        app
+      };
+    } catch (error: any) {
+      localLogger.error('Failed to stop Node.js app', { error, request });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:get-apps', async (_event, request: GetAppsRequest) => {
+    try {
+      const apps = await appManager.getAppsForSite(request.siteId);
+      return {
+        success: true,
+        apps
+      };
+    } catch (error: any) {
+      localLogger.error('Failed to get Node.js apps', { error, request });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:get-logs', async (_event, request: GetLogsRequest) => {
+    try {
+      const logs = await appManager.getAppLogs(
+        request.siteId,
+        request.appId,
+        request.lines || 100
+      );
+      return {
+        success: true,
+        logs
+      };
+    } catch (error: any) {
+      localLogger.error('Failed to get app logs', { error, request });
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:update-env', async (_event, request: UpdateEnvRequest) => {
+    try {
+      await appManager.updateAppEnv(
+        request.siteId,
+        request.appId,
+        request.env
+      );
+
+      // Restart app if running
+      const app = await appManager.getApp(request.siteId, request.appId);
+      if (app && app.status === 'running') {
+        await appManager.restartApp(request.siteId, request.appId);
       }
+
+      return { success: true };
+    } catch (error: any) {
+      localLogger.error('Failed to update app environment', { error, request });
+      return {
+        success: false,
+        error: error.message
+      };
     }
-  );
-
-  LocalMain.addIpcAsyncListener<StartAppRequest, AddAppResponse>(
-    'node-orchestrator:start-app',
-    async (request) => {
-      try {
-        const app = await appManager.startApp(request.siteId, request.appId);
-        return {
-          success: true,
-          app
-        };
-      } catch (error) {
-        localLogger.error('Failed to start Node.js app', { error, request });
-        return {
-          success: false,
-          error: error.message
-        };
-      }
-    }
-  );
-
-  LocalMain.addIpcAsyncListener<StopAppRequest, AddAppResponse>(
-    'node-orchestrator:stop-app',
-    async (request) => {
-      try {
-        const app = await appManager.stopApp(request.siteId, request.appId);
-        return {
-          success: true,
-          app
-        };
-      } catch (error) {
-        localLogger.error('Failed to stop Node.js app', { error, request });
-        return {
-          success: false,
-          error: error.message
-        };
-      }
-    }
-  );
-
-  LocalMain.addIpcAsyncListener<GetAppsRequest, GetAppsResponse>(
-    'node-orchestrator:get-apps',
-    async (request) => {
-      try {
-        const apps = await appManager.getAppsForSite(request.siteId);
-        return {
-          success: true,
-          apps
-        };
-      } catch (error) {
-        localLogger.error('Failed to get Node.js apps', { error, request });
-        return {
-          success: false,
-          error: error.message
-        };
-      }
-    }
-  );
-
-  LocalMain.addIpcAsyncListener<GetLogsRequest, GetLogsResponse>(
-    'node-orchestrator:get-logs',
-    async (request) => {
-      try {
-        const logs = await appManager.getAppLogs(
-          request.siteId,
-          request.appId,
-          request.lines || 100
-        );
-        return {
-          success: true,
-          logs
-        };
-      } catch (error) {
-        localLogger.error('Failed to get app logs', { error, request });
-        return {
-          success: false,
-          error: error.message
-        };
-      }
-    }
-  );
-
-  LocalMain.addIpcAsyncListener<UpdateEnvRequest, UpdateEnvResponse>(
-    'node-orchestrator:update-env',
-    async (request) => {
-      try {
-        await appManager.updateAppEnv(
-          request.siteId,
-          request.appId,
-          request.env
-        );
-
-        // Restart app if running
-        const app = await appManager.getApp(request.siteId, request.appId);
-        if (app && app.status === 'running') {
-          await appManager.restartApp(request.siteId, request.appId);
-        }
-
-        return { success: true };
-      } catch (error) {
-        localLogger.error('Failed to update app environment', { error, request });
-        return {
-          success: false,
-          error: error.message
-        };
-      }
-    }
-  );
+  });
 
   // Environment variable filter for WordPress integration
   context.hooks.addFilter(
