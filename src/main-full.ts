@@ -22,6 +22,16 @@ import {
   NodeApp,
   SiteNodeApps
 } from './types';
+import {
+  AddAppRequestSchema,
+  StartAppRequestSchema,
+  StopAppRequestSchema,
+  RemoveAppRequestSchema,
+  GetAppsRequestSchema,
+  GetLogsRequestSchema,
+  UpdateEnvRequestSchema,
+  validate
+} from './security/schemas';
 
 export default function (context: LocalMain.AddonMainContext): void {
   const { electron } = context;
@@ -84,21 +94,31 @@ export default function (context: LocalMain.AddonMainContext): void {
   });
 
   // IPC Handlers
-  ipcMain.handle('node-orchestrator:add-app', async (_event, request: AddAppRequest) => {
+  ipcMain.handle('node-orchestrator:add-app', async (_event, request: unknown) => {
     try {
-      const site = siteData.getSite(request.siteId);
-      if (!site) {
-        throw new Error(`Site ${request.siteId} not found`);
+      // Validate input
+      const validation = validate(AddAppRequestSchema, request);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
       }
 
-      const app = await appManager.addApp(site, request.app);
+      const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        throw new Error(`Site ${validatedRequest.siteId} not found`);
+      }
+
+      const app = await appManager.addApp(site, validatedRequest.app);
 
       return {
         success: true,
         app
       };
     } catch (error: any) {
-      localLogger.error('Failed to add Node.js app', { error, request });
+      localLogger.error('Failed to add Node.js app', { error });
       return {
         success: false,
         error: error.message
@@ -106,12 +126,22 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
-  ipcMain.handle('node-orchestrator:remove-app', async (_event, request: RemoveAppRequest) => {
+  ipcMain.handle('node-orchestrator:remove-app', async (_event, request: unknown) => {
     try {
-      await appManager.removeApp(request.siteId, request.appId);
+      // Validate input
+      const validation = validate(RemoveAppRequestSchema, request);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      await appManager.removeApp(validatedRequest.siteId, validatedRequest.appId);
       return { success: true };
     } catch (error: any) {
-      localLogger.error('Failed to remove Node.js app', { error, request });
+      localLogger.error('Failed to remove Node.js app', { error });
       return {
         success: false,
         error: error.message
@@ -119,15 +149,25 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
-  ipcMain.handle('node-orchestrator:start-app', async (_event, request: StartAppRequest) => {
+  ipcMain.handle('node-orchestrator:start-app', async (_event, request: unknown) => {
     try {
-      const app = await appManager.startApp(request.siteId, request.appId);
+      // Validate input
+      const validation = validate(StartAppRequestSchema, request);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const app = await appManager.startApp(validatedRequest.siteId, validatedRequest.appId);
       return {
         success: true,
         app
       };
     } catch (error: any) {
-      localLogger.error('Failed to start Node.js app', { error, request });
+      localLogger.error('Failed to start Node.js app', { error });
       return {
         success: false,
         error: error.message
@@ -135,15 +175,25 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
-  ipcMain.handle('node-orchestrator:stop-app', async (_event, request: StopAppRequest) => {
+  ipcMain.handle('node-orchestrator:stop-app', async (_event, request: unknown) => {
     try {
-      const app = await appManager.stopApp(request.siteId, request.appId);
+      // Validate input
+      const validation = validate(StopAppRequestSchema, request);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const app = await appManager.stopApp(validatedRequest.siteId, validatedRequest.appId);
       return {
         success: true,
         app
       };
     } catch (error: any) {
-      localLogger.error('Failed to stop Node.js app', { error, request });
+      localLogger.error('Failed to stop Node.js app', { error });
       return {
         success: false,
         error: error.message
@@ -151,15 +201,25 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
-  ipcMain.handle('node-orchestrator:get-apps', async (_event, request: GetAppsRequest) => {
+  ipcMain.handle('node-orchestrator:get-apps', async (_event, request: unknown) => {
     try {
-      const apps = await appManager.getAppsForSite(request.siteId);
+      // Validate input
+      const validation = validate(GetAppsRequestSchema, request);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const apps = await appManager.getAppsForSite(validatedRequest.siteId);
       return {
         success: true,
         apps
       };
     } catch (error: any) {
-      localLogger.error('Failed to get Node.js apps', { error, request });
+      localLogger.error('Failed to get Node.js apps', { error });
       return {
         success: false,
         error: error.message
@@ -167,19 +227,29 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
-  ipcMain.handle('node-orchestrator:get-logs', async (_event, request: GetLogsRequest) => {
+  ipcMain.handle('node-orchestrator:get-logs', async (_event, request: unknown) => {
     try {
+      // Validate input
+      const validation = validate(GetLogsRequestSchema, request);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
       const logs = await appManager.getAppLogs(
-        request.siteId,
-        request.appId,
-        request.lines || 100
+        validatedRequest.siteId,
+        validatedRequest.appId,
+        validatedRequest.lines
       );
       return {
         success: true,
         logs
       };
     } catch (error: any) {
-      localLogger.error('Failed to get app logs', { error, request });
+      localLogger.error('Failed to get app logs', { error });
       return {
         success: false,
         error: error.message
@@ -187,23 +257,33 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
-  ipcMain.handle('node-orchestrator:update-env', async (_event, request: UpdateEnvRequest) => {
+  ipcMain.handle('node-orchestrator:update-env', async (_event, request: unknown) => {
     try {
+      // Validate input
+      const validation = validate(UpdateEnvRequestSchema, request);
+      if (!validation.success) {
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
       await appManager.updateAppEnv(
-        request.siteId,
-        request.appId,
-        request.env
+        validatedRequest.siteId,
+        validatedRequest.appId,
+        validatedRequest.env
       );
 
       // Restart app if running
-      const app = await appManager.getApp(request.siteId, request.appId);
+      const app = await appManager.getApp(validatedRequest.siteId, validatedRequest.appId);
       if (app && app.status === 'running') {
-        await appManager.restartApp(request.siteId, request.appId);
+        await appManager.restartApp(validatedRequest.siteId, validatedRequest.appId);
       }
 
       return { success: true };
     } catch (error: any) {
-      localLogger.error('Failed to update app environment', { error, request });
+      localLogger.error('Failed to update app environment', { error });
       return {
         success: false,
         error: error.message

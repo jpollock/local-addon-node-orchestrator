@@ -1,0 +1,167 @@
+/**
+ * Zod validation schemas for IPC request data
+ * Ensures all incoming data from renderer is properly validated
+ */
+
+import { z } from 'zod';
+
+/**
+ * UUID format validation
+ */
+const uuidSchema = z.string().uuid('Invalid UUID format');
+
+/**
+ * App name validation - alphanumeric with dashes only
+ */
+const appNameSchema = z
+  .string()
+  .min(1, 'App name is required')
+  .max(100, 'App name must be less than 100 characters')
+  .regex(/^[a-z0-9-]+$/, 'App name must contain only lowercase letters, numbers, and dashes');
+
+/**
+ * Git URL validation
+ */
+const gitUrlSchema = z
+  .string()
+  .min(1, 'Git URL is required')
+  .refine(
+    (url) => {
+      const patterns = [
+        /^https?:\/\/.+$/,
+        /^git@.+:.+$/,
+        /^ssh:\/\/.+$/
+      ];
+      return patterns.some(pattern => pattern.test(url));
+    },
+    'Invalid Git URL format. Must be HTTPS, SSH, or git@ format'
+  );
+
+/**
+ * Git branch validation
+ */
+const branchSchema = z
+  .string()
+  .min(1, 'Branch name is required')
+  .max(100, 'Branch name must be less than 100 characters')
+  .regex(/^[a-zA-Z0-9/_.-]+$/, 'Branch name contains invalid characters');
+
+/**
+ * Command validation - checks for basic structure
+ * More detailed validation is done by validateCommand()
+ */
+const commandSchema = z
+  .string()
+  .min(1, 'Command is required')
+  .max(500, 'Command must be less than 500 characters');
+
+/**
+ * Optional command validation
+ */
+const optionalCommandSchema = z
+  .string()
+  .max(500, 'Command must be less than 500 characters')
+  .optional();
+
+/**
+ * Node version validation
+ */
+const nodeVersionSchema = z.enum(['18.x', '20.x', '21.x', '22.x'], {
+  errorMap: () => ({ message: 'Invalid Node.js version' })
+});
+
+/**
+ * Environment variables validation
+ */
+const envSchema = z.record(z.string(), z.string());
+
+/**
+ * Schema for adding a new app
+ */
+export const AddAppRequestSchema = z.object({
+  siteId: uuidSchema,
+  app: z.object({
+    name: appNameSchema,
+    gitUrl: gitUrlSchema,
+    branch: branchSchema,
+    installCommand: commandSchema,
+    buildCommand: optionalCommandSchema,
+    startCommand: commandSchema,
+    nodeVersion: nodeVersionSchema,
+    autoStart: z.boolean(),
+    env: envSchema.optional().default({})
+  })
+});
+
+/**
+ * Schema for starting an app
+ */
+export const StartAppRequestSchema = z.object({
+  siteId: uuidSchema,
+  appId: uuidSchema
+});
+
+/**
+ * Schema for stopping an app
+ */
+export const StopAppRequestSchema = z.object({
+  siteId: uuidSchema,
+  appId: uuidSchema
+});
+
+/**
+ * Schema for removing an app
+ */
+export const RemoveAppRequestSchema = z.object({
+  siteId: uuidSchema,
+  appId: uuidSchema
+});
+
+/**
+ * Schema for getting apps
+ */
+export const GetAppsRequestSchema = z.object({
+  siteId: uuidSchema
+});
+
+/**
+ * Schema for getting logs
+ */
+export const GetLogsRequestSchema = z.object({
+  siteId: uuidSchema,
+  appId: uuidSchema,
+  lines: z.number().int().positive().max(10000).optional().default(100)
+});
+
+/**
+ * Schema for updating environment variables
+ */
+export const UpdateEnvRequestSchema = z.object({
+  siteId: uuidSchema,
+  appId: uuidSchema,
+  env: envSchema
+});
+
+/**
+ * Helper function to validate data against a schema
+ */
+export function validate<T>(
+  schema: z.ZodSchema<T>,
+  data: unknown
+): { success: true; data: T } | { success: false; error: string } {
+  try {
+    const validated = schema.parse(data);
+    return { success: true, data: validated };
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errorMessages = error.errors
+        .map(e => `${e.path.join('.')}: ${e.message}`)
+        .join('; ');
+      return {
+        success: false,
+        error: errorMessages
+      };
+    }
+    return { success: false, error: 'Validation failed' };
+  }
+}
