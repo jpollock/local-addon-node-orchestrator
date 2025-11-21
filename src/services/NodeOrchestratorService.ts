@@ -5,6 +5,7 @@ import * as fs from 'fs-extra';
 import { ChildProcess, spawn } from 'child_process';
 import * as treeKill from 'tree-kill';
 import { NodeApp, NodeAppStatus } from '../types';
+import { validateStartCommand } from '../security/validation';
 
 export default class NodeOrchestratorService extends LocalMain.LightningService {
   readonly serviceName = 'node-orchestrator';
@@ -85,11 +86,17 @@ export default class NodeOrchestratorService extends LocalMain.LightningService 
   // Public methods for app management
   async startNodeApp(app: NodeApp): Promise<void> {
     const { localLogger } = LocalMain.getServiceContainer().cradle;
-    
+
     try {
       // Update app status
       app.status = 'starting';
       await this.updateApp(app);
+
+      // Validate start command for security
+      const commandValidation = validateStartCommand(app.startCommand);
+      if (!commandValidation.valid) {
+        throw new Error(`Invalid start command: ${commandValidation.error}`);
+      }
 
       // Get app directory
       const appDir = path.join(this.getAppsDirectory(), app.id);
@@ -100,8 +107,8 @@ export default class NodeOrchestratorService extends LocalMain.LightningService 
         throw new Error(`App directory not found: ${appDir}`);
       }
 
-      // Parse start command
-      const [command, ...args] = app.startCommand.split(' ');
+      // Use validated and sanitized command
+      const [command, ...args] = commandValidation.sanitizedCommand!;
 
       // Build environment variables
       const env = {
@@ -118,11 +125,12 @@ export default class NodeOrchestratorService extends LocalMain.LightningService 
       // Create log stream
       const logStream = fs.createWriteStream(logFile, { flags: 'a' });
 
-      // Spawn process
+      // Spawn process - using shell: false for better security
+      // Commands are pre-validated and sanitized
       const child = spawn(command, args, {
         cwd: appDir,
         env,
-        shell: true,
+        shell: false, // More secure - prevents shell injection
         detached: false
       });
 
