@@ -12,6 +12,7 @@ import treeKill = require('tree-kill');
 import { NodeApp, AddAppRequest } from '../types';
 import { GitManager, GitProgressEvent } from './GitManager';
 import { ConfigManager } from './ConfigManager';
+import { PortManager } from './PortManager';
 import { validateInstallCommand, validateStartCommand, validateBuildCommand } from '../security/validation';
 
 export interface InstallProgress {
@@ -23,11 +24,13 @@ export interface InstallProgress {
 export class NodeAppManager {
   private configManager: ConfigManager;
   private gitManager: GitManager;
+  private portManager: PortManager;
   private runningProcesses: Map<string, ChildProcess> = new Map();
 
-  constructor(configManager: ConfigManager, gitManager: GitManager) {
+  constructor(configManager: ConfigManager, gitManager: GitManager, portManager: PortManager) {
     this.configManager = configManager;
     this.gitManager = gitManager;
+    this.portManager = portManager;
   }
 
   /**
@@ -116,7 +119,11 @@ export class NodeAppManager {
         }
       }
 
-      // Step 5: Create app configuration
+      // Step 5: Allocate port
+      const port = await this.portManager.allocatePort(site.path, appId);
+      console.log(`[NodeAppManager] Allocated port ${port} for app ${appId}`);
+
+      // Step 6: Create app configuration
       const app: NodeApp = {
         id: appId,
         name: appConfig.name,
@@ -130,6 +137,7 @@ export class NodeAppManager {
         status: 'stopped',
         autoStart: appConfig.autoStart ?? false,
         path: appPath,
+        port,
         createdAt: new Date(),
         updatedAt: new Date()
       };
@@ -174,6 +182,10 @@ export class NodeAppManager {
       // Remove app directory
       await fs.remove(app.path);
     }
+
+    // Release port allocation
+    await this.portManager.releasePort(sitePath, appId);
+    console.log(`[NodeAppManager] Released port for app ${appId}`);
 
     // Remove from config
     await this.configManager.removeApp(siteId, sitePath, appId);

@@ -4,6 +4,7 @@ import { ipcMain } from 'electron';
 import { GitManager } from './lib/GitManager';
 import { NodeAppManager } from './lib/NodeAppManager';
 import { ConfigManager } from './lib/ConfigManager';
+import { PortManager } from './lib/PortManager';
 import {
   AddAppRequestSchema,
   StartAppRequestSchema,
@@ -25,7 +26,8 @@ export default function (context: LocalMain.AddonMainContext): void {
   // Initialize managers
   const configManager = new ConfigManager();
   const gitManager = new GitManager();
-  const appManager = new NodeAppManager(configManager, gitManager);
+  const portManager = new PortManager();
+  const appManager = new NodeAppManager(configManager, gitManager, portManager);
 
   console.log('[Node Orchestrator] Managers initialized');
 
