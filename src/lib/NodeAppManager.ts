@@ -8,6 +8,7 @@ import * as fs from 'fs-extra';
 import { v4 as uuidv4 } from 'uuid';
 import * as Local from '@getflywheel/local';
 import { spawn, ChildProcess } from 'child_process';
+import treeKill = require('tree-kill');
 import { NodeApp, AddAppRequest } from '../types';
 import { GitManager, GitProgressEvent } from './GitManager';
 import { ConfigManager } from './ConfigManager';
@@ -213,14 +214,93 @@ export class NodeAppManager {
     app.status = 'starting';
     await this.configManager.saveApp(siteId, sitePath, app);
 
-    // This will be implemented fully when integrating with NodeOrchestratorService
-    // For now, we just update the status
+    try {
+      // Get app directory
+      const appDir = app.path || path.join(sitePath, 'node-apps', appId);
 
-    app.status = 'running';
-    app.startedAt = new Date();
-    await this.configManager.saveApp(siteId, sitePath, app);
+      // Verify directory exists
+      if (!await fs.pathExists(appDir)) {
+        throw new Error(`App directory not found: ${appDir}`);
+      }
 
-    return app;
+      // Use validated and sanitized command
+      const [command, ...args] = commandValidation.sanitizedCommand!;
+
+      // Build environment variables
+      const env = {
+        ...process.env,
+        ...app.env,
+        PORT: app.port?.toString() || '3000',
+        NODE_ENV: 'development'
+      };
+
+      // Create logs directory
+      const logsDir = path.join(sitePath, 'logs', 'node-apps');
+      await fs.ensureDir(logsDir);
+      const logFile = path.join(logsDir, `${appId}.log`);
+      const logStream = fs.createWriteStream(logFile, { flags: 'a' });
+
+      // Spawn process with security: shell: false prevents command injection
+      const child = spawn(command, args, {
+        cwd: appDir,
+        env,
+        shell: false, // Critical for security
+        detached: false
+      });
+
+      // Store process reference
+      this.runningProcesses.set(appId, child);
+
+      // Handle stdout
+      child.stdout?.on('data', (data) => {
+        logStream.write(`[stdout] ${data.toString()}`);
+      });
+
+      // Handle stderr
+      child.stderr?.on('data', (data) => {
+        logStream.write(`[stderr] ${data.toString()}`);
+      });
+
+      // Handle process exit
+      child.on('exit', async (code, signal) => {
+        logStream.write(`Process exited with code ${code} and signal ${signal}\n`);
+        logStream.end();
+
+        this.runningProcesses.delete(appId);
+        const updatedApp = await this.configManager.getApp(siteId, sitePath, appId);
+        if (updatedApp) {
+          updatedApp.status = 'stopped';
+          updatedApp.pid = undefined;
+          await this.configManager.saveApp(siteId, sitePath, updatedApp);
+        }
+      });
+
+      // Handle process error
+      child.on('error', async (error) => {
+        logStream.write(`Process error: ${error.message}\n`);
+        logStream.end();
+
+        const updatedApp = await this.configManager.getApp(siteId, sitePath, appId);
+        if (updatedApp) {
+          updatedApp.status = 'error';
+          updatedApp.lastError = error.message;
+          await this.configManager.saveApp(siteId, sitePath, updatedApp);
+        }
+      });
+
+      // Update app status to running
+      app.status = 'running';
+      app.pid = child.pid;
+      app.startedAt = new Date();
+      await this.configManager.saveApp(siteId, sitePath, app);
+
+      return app;
+    } catch (error: any) {
+      app.status = 'error';
+      app.lastError = error.message;
+      await this.configManager.saveApp(siteId, sitePath, app);
+      throw error;
+    }
   }
 
   /**
@@ -242,17 +322,36 @@ export class NodeAppManager {
     await this.configManager.saveApp(siteId, sitePath, app);
 
     // Stop the process if we're managing it
-    const process = this.runningProcesses.get(appId);
-    if (process) {
-      process.kill('SIGTERM');
-      this.runningProcesses.delete(appId);
+    const child = this.runningProcesses.get(appId);
+    if (child && child.pid) {
+      return new Promise((resolve) => {
+        // Kill entire process tree to ensure cleanup of child processes
+        treeKill(child.pid!, 'SIGTERM', async (error: any) => {
+          if (error) {
+            // Try force kill if graceful termination fails
+            treeKill(child.pid!, 'SIGKILL', async () => {
+              this.runningProcesses.delete(appId);
+              app.status = 'stopped';
+              app.pid = undefined;
+              await this.configManager.saveApp(siteId, sitePath, app);
+              resolve(app);
+            });
+          } else {
+            this.runningProcesses.delete(appId);
+            app.status = 'stopped';
+            app.pid = undefined;
+            await this.configManager.saveApp(siteId, sitePath, app);
+            resolve(app);
+          }
+        });
+      });
+    } else {
+      // No running process, just update status
+      app.status = 'stopped';
+      app.pid = undefined;
+      await this.configManager.saveApp(siteId, sitePath, app);
+      return app;
     }
-
-    app.status = 'stopped';
-    app.pid = undefined;
-    await this.configManager.saveApp(siteId, sitePath, app);
-
-    return app;
   }
 
   /**
