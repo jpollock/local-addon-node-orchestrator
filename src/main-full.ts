@@ -77,16 +77,60 @@ export default function (context: LocalMain.AddonMainContext): void {
   };
 
   // Register multiple hooks to ensure we catch site stopping
-  context.hooks.addAction('siteStopping', (site: Local.Site) => stopAppsForSite(site, 'siteStopping'));
-  context.hooks.addAction('siteStopped', (site: Local.Site) => stopAppsForSite(site, 'siteStopped'));
-  context.hooks.addAction('siteStop', (site: Local.Site) => stopAppsForSite(site, 'siteStop'));
-
-  context.hooks.addAction('siteDeleting', async (site: Local.Site) => {
+  // Using synchronous callbacks (Kitchen Sink pattern) - don't await in hook
+  context.hooks.addAction('siteStopping', (site: Local.Site) => {
     try {
-      await appManager.removeAllAppsForSite(site.id, site.path);
-      localLogger.log('info', `Cleaned up Node.js apps for ${site.name}`);
+      console.log(`[Node Orchestrator] siteStopping hook fired for ${site.name}`);
+      stopAppsForSite(site, 'siteStopping').catch((error: any) => {
+        console.error('[Node Orchestrator] Error in siteStopping:', error);
+        localLogger.error('Error stopping apps in siteStopping hook', { error, siteId: site.id });
+      });
     } catch (error) {
-      localLogger.error('Failed to clean up Node.js apps', { error, siteId: site.id });
+      console.error('[Node Orchestrator] Synchronous error in siteStopping hook:', error);
+      localLogger.error('Synchronous error in siteStopping hook', { error, siteId: site.id });
+    }
+  });
+
+  context.hooks.addAction('siteStopped', (site: Local.Site) => {
+    try {
+      console.log(`[Node Orchestrator] siteStopped hook fired for ${site.name}`);
+      stopAppsForSite(site, 'siteStopped').catch((error: any) => {
+        console.error('[Node Orchestrator] Error in siteStopped:', error);
+        localLogger.error('Error stopping apps in siteStopped hook', { error, siteId: site.id });
+      });
+    } catch (error) {
+      console.error('[Node Orchestrator] Synchronous error in siteStopped hook:', error);
+      localLogger.error('Synchronous error in siteStopped hook', { error, siteId: site.id });
+    }
+  });
+
+  context.hooks.addAction('siteStop', (site: Local.Site) => {
+    try {
+      console.log(`[Node Orchestrator] siteStop hook fired for ${site.name}`);
+      stopAppsForSite(site, 'siteStop').catch((error: any) => {
+        console.error('[Node Orchestrator] Error in siteStop:', error);
+        localLogger.error('Error stopping apps in siteStop hook', { error, siteId: site.id });
+      });
+    } catch (error) {
+      console.error('[Node Orchestrator] Synchronous error in siteStop hook:', error);
+      localLogger.error('Synchronous error in siteStop hook', { error, siteId: site.id });
+    }
+  });
+
+  context.hooks.addAction('siteDeleting', (site: Local.Site) => {
+    try {
+      console.log(`[Node Orchestrator] siteDeleting hook fired for ${site.name}`);
+      appManager.removeAllAppsForSite(site.id, site.path)
+        .then(() => {
+          localLogger.log('info', `Cleaned up Node.js apps for ${site.name}`);
+        })
+        .catch((error: any) => {
+          console.error('[Node Orchestrator] Error in siteDeleting:', error);
+          localLogger.error('Failed to clean up Node.js apps', { error, siteId: site.id });
+        });
+    } catch (error) {
+      console.error('[Node Orchestrator] Synchronous error in siteDeleting hook:', error);
+      localLogger.error('Synchronous error in siteDeleting hook', { error, siteId: site.id });
     }
   });
 
