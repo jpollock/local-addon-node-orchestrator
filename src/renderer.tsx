@@ -301,7 +301,17 @@ export default function (context: any): void {
                   React.createElement('div', { style: { fontSize: '13px', color: '#666', marginBottom: '10px' } },
                     React.createElement('div', null, `Git: ${app.gitUrl}`),
                     React.createElement('div', null, `Branch: ${app.branch}`),
-                    React.createElement('div', null, `Node: ${app.nodeVersion}`)
+                    React.createElement('div', null, `Node: ${app.nodeVersion}`),
+                    app.port && React.createElement('div', { style: { marginTop: '5px' } },
+                      'Port: ',
+                      app.status === 'running'
+                        ? React.createElement('a', {
+                            href: `http://localhost:${app.port}`,
+                            target: '_blank',
+                            style: { color: '#007cba', textDecoration: 'none', fontWeight: 'bold' }
+                          }, `${app.port} (click to open)`)
+                        : React.createElement('span', { style: { fontWeight: 'bold' } }, app.port)
+                    )
                   ),
                   React.createElement('div', { style: { display: 'flex', gap: '8px' } },
                     app.status === 'stopped' && React.createElement('button', {
