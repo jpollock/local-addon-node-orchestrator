@@ -19,10 +19,15 @@ import { logAndSanitizeError } from './security/errors';
 export default function (context: LocalMain.AddonMainContext): void {
   const { localLogger, siteData } = LocalMain.getServiceContainer().cradle;
 
+  console.log('[Node Orchestrator] Main addon loading...');
+  console.log('[Node Orchestrator] Available hooks:', Object.keys(context.hooks || {}));
+
   // Initialize managers
   const configManager = new ConfigManager();
   const gitManager = new GitManager();
   const appManager = new NodeAppManager(configManager, gitManager);
+
+  console.log('[Node Orchestrator] Managers initialized');
 
   // Site lifecycle hooks
   context.hooks.addAction('siteStarted', async (site: Local.Site) => {
@@ -40,31 +45,41 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
-  context.hooks.addAction('siteStopping', async (site: Local.Site) => {
+  // Try multiple hook names to ensure we catch site stopping
+  const stopAppsForSite = async (site: Local.Site, hookName: string) => {
     try {
-      localLogger.log('info', `Site stopping - checking for Node.js apps to stop`, { siteName: site.name, siteId: site.id });
+      console.log(`[Node Orchestrator] ${hookName} hook fired for ${site.name}`);
+      localLogger.log('info', `${hookName} - checking for Node.js apps to stop`, { siteName: site.name, siteId: site.id });
 
       const apps = await appManager.getAppsForSite(site.id, site.path);
       localLogger.log('info', `Found ${apps.length} Node.js apps`, { apps: apps.map(a => ({ id: a.id, name: a.name, status: a.status })) });
 
       // Stop ALL apps, regardless of status (safer approach)
-      // Apps might have status mismatch or be orphaned
       let stoppedCount = 0;
       for (const app of apps) {
         try {
+          console.log(`[Node Orchestrator] Stopping app ${app.name} (${app.id})`);
           localLogger.log('info', `Attempting to stop app ${app.name}`, { appId: app.id, status: app.status });
           await appManager.stopApp(site.id, site.path, app.id);
           stoppedCount++;
         } catch (error) {
+          console.error(`[Node Orchestrator] Failed to stop ${app.name}:`, error);
           localLogger.error(`Failed to stop app ${app.name}`, { error, appId: app.id });
         }
       }
 
+      console.log(`[Node Orchestrator] Stopped ${stoppedCount} apps for ${site.name}`);
       localLogger.log('info', `Stopped ${stoppedCount} Node.js apps for ${site.name}`);
     } catch (error) {
+      console.error(`[Node Orchestrator] Error in ${hookName}:`, error);
       localLogger.error('Failed to stop Node.js apps', { error, siteId: site.id });
     }
-  });
+  };
+
+  // Register multiple hooks to ensure we catch site stopping
+  context.hooks.addAction('siteStopping', (site: Local.Site) => stopAppsForSite(site, 'siteStopping'));
+  context.hooks.addAction('siteStopped', (site: Local.Site) => stopAppsForSite(site, 'siteStopped'));
+  context.hooks.addAction('siteStop', (site: Local.Site) => stopAppsForSite(site, 'siteStop'));
 
   context.hooks.addAction('siteDeleting', async (site: Local.Site) => {
     try {

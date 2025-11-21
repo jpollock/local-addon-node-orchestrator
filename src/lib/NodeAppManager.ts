@@ -235,7 +235,12 @@ export class NodeAppManager {
       };
 
       // Create logs directory - use conf directory which we know exists
-      const logsDir = path.join(sitePath, 'conf', 'node-apps', 'logs');
+      // Ensure sitePath is absolute (expand ~ if present)
+      const absoluteSitePath = sitePath.startsWith('~')
+        ? path.join(process.env.HOME || '', sitePath.slice(1))
+        : sitePath;
+
+      const logsDir = path.join(absoluteSitePath, 'conf', 'node-apps', 'logs');
       await fs.ensureDir(logsDir);
       const logFile = path.join(logsDir, `${appId}.log`);
 
