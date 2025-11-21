@@ -6,9 +6,17 @@
 import { z } from 'zod';
 
 /**
- * UUID format validation
+ * Site ID validation - Local uses string site IDs (not UUIDs)
  */
-const uuidSchema = z.string().uuid('Invalid UUID format');
+const siteIdSchema = z
+  .string()
+  .min(1, 'Site ID is required')
+  .max(255, 'Site ID must be less than 255 characters');
+
+/**
+ * App ID validation - We generate these as UUIDs
+ */
+const appIdSchema = z.string().uuid('Invalid app ID format');
 
 /**
  * App name validation - alphanumeric with dashes only
@@ -77,7 +85,7 @@ const envSchema = z.record(z.string(), z.string());
  * Schema for adding a new app
  */
 export const AddAppRequestSchema = z.object({
-  siteId: uuidSchema,
+  siteId: siteIdSchema,
   app: z.object({
     name: appNameSchema,
     gitUrl: gitUrlSchema,
@@ -95,39 +103,39 @@ export const AddAppRequestSchema = z.object({
  * Schema for starting an app
  */
 export const StartAppRequestSchema = z.object({
-  siteId: uuidSchema,
-  appId: uuidSchema
+  siteId: siteIdSchema,
+  appId: appIdSchema
 });
 
 /**
  * Schema for stopping an app
  */
 export const StopAppRequestSchema = z.object({
-  siteId: uuidSchema,
-  appId: uuidSchema
+  siteId: siteIdSchema,
+  appId: appIdSchema
 });
 
 /**
  * Schema for removing an app
  */
 export const RemoveAppRequestSchema = z.object({
-  siteId: uuidSchema,
-  appId: uuidSchema
+  siteId: siteIdSchema,
+  appId: appIdSchema
 });
 
 /**
  * Schema for getting apps
  */
 export const GetAppsRequestSchema = z.object({
-  siteId: uuidSchema
+  siteId: siteIdSchema
 });
 
 /**
  * Schema for getting logs
  */
 export const GetLogsRequestSchema = z.object({
-  siteId: uuidSchema,
-  appId: uuidSchema,
+  siteId: siteIdSchema,
+  appId: appIdSchema,
   lines: z.number().int().positive().max(10000).optional().default(100)
 });
 
@@ -135,8 +143,8 @@ export const GetLogsRequestSchema = z.object({
  * Schema for updating environment variables
  */
 export const UpdateEnvRequestSchema = z.object({
-  siteId: uuidSchema,
-  appId: uuidSchema,
+  siteId: siteIdSchema,
+  appId: appIdSchema,
   env: envSchema
 });
 
