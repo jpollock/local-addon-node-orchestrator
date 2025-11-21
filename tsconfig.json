@@ -24,6 +24,7 @@
   },
   "include": [
     "src/main.ts",
+    "src/main-full.ts",
     "src/renderer.tsx",
     "src/types.ts",
     "src/lib/**/*.ts",
@@ -36,6 +37,6 @@
     "**/*.test.ts",
     "src/components/**",
     "src/services/**",
-    "src/*-full.*"
+    "src/renderer-full.tsx"
   ]
 }

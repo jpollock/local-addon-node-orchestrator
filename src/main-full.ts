@@ -1,27 +1,9 @@
 import * as LocalMain from '@getflywheel/local/main';
 import * as Local from '@getflywheel/local';
-import * as path from 'path';
-import * as fs from 'fs-extra';
 import { ipcMain } from 'electron';
-import NodeOrchestratorService from './services/NodeOrchestratorService';
 import { GitManager } from './lib/GitManager';
 import { NodeAppManager } from './lib/NodeAppManager';
 import { ConfigManager } from './lib/ConfigManager';
-import {
-  AddAppRequest,
-  AddAppResponse,
-  RemoveAppRequest,
-  StartAppRequest,
-  StopAppRequest,
-  GetAppsRequest,
-  GetAppsResponse,
-  GetLogsRequest,
-  GetLogsResponse,
-  UpdateEnvRequest,
-  UpdateEnvResponse,
-  NodeApp,
-  SiteNodeApps
-} from './types';
 import {
   AddAppRequestSchema,
   StartAppRequestSchema,
@@ -35,7 +17,6 @@ import {
 import { logAndSanitizeError } from './security/errors';
 
 export default function (context: LocalMain.AddonMainContext): void {
-  const { electron } = context;
   const { localLogger, siteData } = LocalMain.getServiceContainer().cradle;
 
   // Initialize managers
@@ -43,24 +24,14 @@ export default function (context: LocalMain.AddonMainContext): void {
   const gitManager = new GitManager();
   const appManager = new NodeAppManager(configManager, gitManager);
 
-  // Register Lightning Service
-  LocalMain.registerLightningService(
-    NodeOrchestratorService,
-    '1.0.0',
-    {
-      defaultEnabled: false,
-      requiredFor: []
-    }
-  );
-
   // Site lifecycle hooks
   context.hooks.addAction('siteStarted', async (site: Local.Site) => {
     try {
-      const apps = await appManager.getAppsForSite(site.id);
+      const apps = await appManager.getAppsForSite(site.id, site.path);
       const autoStartApps = apps.filter(app => app.autoStart);
 
       for (const app of autoStartApps) {
-        await appManager.startApp(site.id, app.id);
+        await appManager.startApp(site.id, site.path, app.id);
       }
 
       localLogger.log('info', `Started ${autoStartApps.length} Node.js apps for ${site.name}`);
@@ -71,11 +42,11 @@ export default function (context: LocalMain.AddonMainContext): void {
 
   context.hooks.addAction('siteStopping', async (site: Local.Site) => {
     try {
-      const apps = await appManager.getAppsForSite(site.id);
-      
+      const apps = await appManager.getAppsForSite(site.id, site.path);
+
       for (const app of apps) {
         if (app.status === 'running') {
-          await appManager.stopApp(site.id, app.id);
+          await appManager.stopApp(site.id, site.path, app.id);
         }
       }
 
@@ -87,7 +58,7 @@ export default function (context: LocalMain.AddonMainContext): void {
 
   context.hooks.addAction('siteDeleting', async (site: Local.Site) => {
     try {
-      await appManager.removeAllAppsForSite(site.id);
+      await appManager.removeAllAppsForSite(site.id, site.path);
       localLogger.log('info', `Cleaned up Node.js apps for ${site.name}`);
     } catch (error) {
       localLogger.error('Failed to clean up Node.js apps', { error, siteId: site.id });
@@ -152,13 +123,18 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for remove-app request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
 
       localLogger.info('Removing Node.js app', {
         siteId: validatedRequest.siteId,
         appId: validatedRequest.appId
       });
 
-      await appManager.removeApp(validatedRequest.siteId, validatedRequest.appId);
+      await appManager.removeApp(validatedRequest.siteId, site.path, validatedRequest.appId);
 
       localLogger.info('Successfully removed Node.js app', {
         siteId: validatedRequest.siteId,
@@ -188,12 +164,18 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for start-app request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
       localLogger.info('Starting Node.js app', {
         siteId: validatedRequest.siteId,
         appId: validatedRequest.appId
       });
 
-      const app = await appManager.startApp(validatedRequest.siteId, validatedRequest.appId);
+      const app = await appManager.startApp(validatedRequest.siteId, site.path, validatedRequest.appId);
 
       localLogger.info('Successfully started Node.js app', {
         siteId: validatedRequest.siteId,
@@ -226,12 +208,18 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for stop-app request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
       localLogger.info('Stopping Node.js app', {
         siteId: validatedRequest.siteId,
         appId: validatedRequest.appId
       });
 
-      const app = await appManager.stopApp(validatedRequest.siteId, validatedRequest.appId);
+      const app = await appManager.stopApp(validatedRequest.siteId, site.path, validatedRequest.appId);
 
       localLogger.info('Successfully stopped Node.js app', {
         siteId: validatedRequest.siteId,
@@ -264,7 +252,13 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
-      const apps = await appManager.getAppsForSite(validatedRequest.siteId);
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for get-apps request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
+      const apps = await appManager.getAppsForSite(validatedRequest.siteId, site.path);
       return {
         success: true,
         apps
@@ -291,8 +285,15 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for get-logs request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
       const logs = await appManager.getAppLogs(
         validatedRequest.siteId,
+        site.path,
         validatedRequest.appId,
         validatedRequest.lines
       );
@@ -322,6 +323,12 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for update-env request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
       localLogger.info('Updating app environment', {
         siteId: validatedRequest.siteId,
         appId: validatedRequest.appId
@@ -329,18 +336,19 @@ export default function (context: LocalMain.AddonMainContext): void {
 
       await appManager.updateAppEnv(
         validatedRequest.siteId,
+        site.path,
         validatedRequest.appId,
         validatedRequest.env
       );
 
       // Restart app if running
-      const app = await appManager.getApp(validatedRequest.siteId, validatedRequest.appId);
+      const app = await appManager.getApp(validatedRequest.siteId, site.path, validatedRequest.appId);
       if (app && app.status === 'running') {
         localLogger.info('Restarting app after env update', {
           siteId: validatedRequest.siteId,
           appId: validatedRequest.appId
         });
-        await appManager.restartApp(validatedRequest.siteId, validatedRequest.appId);
+        await appManager.restartApp(validatedRequest.siteId, site.path, validatedRequest.appId);
       }
 
       localLogger.info('Successfully updated app environment', {
