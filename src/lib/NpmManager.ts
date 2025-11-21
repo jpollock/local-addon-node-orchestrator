@@ -29,10 +29,18 @@ export interface NpmOptions {
 export class NpmManager {
   private cachedNpmInfo?: NpmInfo;
 
+  // Debug flag: set to true to force using bundled npm (for testing)
+  private static FORCE_BUNDLED_NPM = process.env.FORCE_BUNDLED_NPM === 'true';
+
   /**
    * Detect if system npm is available
    */
   private async detectSystemNpm(): Promise<boolean> {
+    // For testing: force bundled npm
+    if (NpmManager.FORCE_BUNDLED_NPM) {
+      console.log('[NpmManager] 🧪 FORCE_BUNDLED_NPM enabled - skipping system npm detection');
+      return false;
+    }
     return new Promise((resolve) => {
       const child = spawn('npm', ['--version'], {
         shell: true,
