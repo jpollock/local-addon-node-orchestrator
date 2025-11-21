@@ -66,9 +66,7 @@ const optionalCommandSchema = z
 /**
  * Node version validation
  */
-const nodeVersionSchema = z.enum(['18.x', '20.x', '21.x', '22.x'], {
-  errorMap: () => ({ message: 'Invalid Node.js version' })
-});
+const nodeVersionSchema = z.enum(['18.x', '20.x', '21.x', '22.x']);
 
 /**
  * Environment variables validation
@@ -154,8 +152,8 @@ export function validate<T>(
     return { success: true, data: validated };
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const errorMessages = error.errors
-        .map(e => `${e.path.join('.')}: ${e.message}`)
+      const errorMessages = error.issues
+        .map((e: z.ZodIssue) => `${e.path.join('.')}: ${e.message}`)
         .join('; ');
       return {
         success: false,

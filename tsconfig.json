@@ -22,6 +22,20 @@
     "allowSyntheticDefaultImports": true,
     "isolatedModules": true
   },
-  "include": ["src/main.ts", "src/renderer.tsx"],
-  "exclude": ["node_modules", "lib", "**/*.spec.ts", "**/*.test.ts", "src/components/**", "src/services/**", "src/lib/**", "src/*-full.*"]
+  "include": [
+    "src/main.ts",
+    "src/renderer.tsx",
+    "src/types.ts",
+    "src/lib/**/*.ts",
+    "src/security/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "lib",
+    "**/*.spec.ts",
+    "**/*.test.ts",
+    "src/components/**",
+    "src/services/**",
+    "src/*-full.*"
+  ]
 }

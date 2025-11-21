@@ -1,10 +1,10 @@
 # Dependencies
 node_modules/
 
-# Build output
-lib/
-dist/
-build/
+# Build output (compiled files at root, not src/lib)
+/lib/
+/dist/
+/build/
 *.js
 *.js.map
 *.d.ts
