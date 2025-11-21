@@ -30,8 +30,20 @@ export default function (context: any): void {
         }
       };
 
+      refreshInterval: any = null;
+
       componentDidMount() {
         this.loadApps();
+        // Auto-refresh every 2 seconds to catch status updates
+        this.refreshInterval = setInterval(() => {
+          this.loadApps();
+        }, 2000);
+      }
+
+      componentWillUnmount() {
+        if (this.refreshInterval) {
+          clearInterval(this.refreshInterval);
+        }
       }
 
       loadApps = async () => {
