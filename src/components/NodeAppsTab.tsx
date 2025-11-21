@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
   Button,
   Title,
@@ -18,124 +18,144 @@ interface NodeAppsTabProps {
   electron: any;
 }
 
-const NodeAppsTab: React.FC<NodeAppsTabProps> = ({ site, electron }) => {
-  const [apps, setApps] = useState<NodeApp[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [selectedApp, setSelectedApp] = useState<NodeApp | null>(null);
-  const [showLogs, setShowLogs] = useState(false);
+interface NodeAppsTabState {
+  apps: NodeApp[];
+  loading: boolean;
+  error: string | null;
+  showAddModal: boolean;
+  selectedApp: NodeApp | null;
+  showLogs: boolean;
+}
 
-  useEffect(() => {
-    loadApps();
-    
+class NodeAppsTab extends React.Component<NodeAppsTabProps, NodeAppsTabState> {
+  private refreshInterval?: NodeJS.Timeout;
+
+  state: NodeAppsTabState = {
+    apps: [],
+    loading: true,
+    error: null,
+    showAddModal: false,
+    selectedApp: null,
+    showLogs: false
+  };
+
+  componentDidMount() {
+    this.loadApps();
+
     // Set up refresh interval
-    const interval = setInterval(loadApps, 5000);
-    return () => clearInterval(interval);
-  }, [site.id]);
+    this.refreshInterval = setInterval(() => this.loadApps(), 5000);
+  }
 
-  const loadApps = async () => {
+  componentWillUnmount() {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+  }
+
+  loadApps = async () => {
     try {
-      const response = await electron.ipcRenderer.invoke(
+      const response = await this.props.electron.ipcRenderer.invoke(
         'node-orchestrator:get-apps',
-        { siteId: site.id }
+        { siteId: this.props.site.id }
       );
 
       if (response.success) {
-        setApps(response.apps || []);
-        setError(null);
+        this.setState({ apps: response.apps || [], error: null });
       } else {
-        setError(response.error || 'Failed to load apps');
+        this.setState({ error: response.error || 'Failed to load apps' });
       }
-    } catch (err) {
-      setError(err.message);
+    } catch (err: any) {
+      this.setState({ error: err.message });
     } finally {
-      setLoading(false);
+      this.setState({ loading: false });
     }
   };
 
-  const handleAddApp = async (appConfig: any) => {
+  handleAddApp = async (appConfig: any) => {
     try {
-      const response = await electron.ipcRenderer.invoke(
+      const response = await this.props.electron.ipcRenderer.invoke(
         'node-orchestrator:add-app',
         {
-          siteId: site.id,
+          siteId: this.props.site.id,
           app: appConfig
         }
       );
 
       if (response.success) {
-        await loadApps();
-        setShowAddModal(false);
+        await this.loadApps();
+        this.setState({ showAddModal: false });
       } else {
         throw new Error(response.error);
       }
-    } catch (err) {
+    } catch (err: any) {
       alert(`Failed to add app: ${err.message}`);
     }
   };
 
-  const handleStartApp = async (appId: string) => {
+  handleStartApp = async (appId: string) => {
     try {
-      const response = await electron.ipcRenderer.invoke(
+      const response = await this.props.electron.ipcRenderer.invoke(
         'node-orchestrator:start-app',
-        { siteId: site.id, appId }
+        { siteId: this.props.site.id, appId }
       );
 
       if (response.success) {
-        await loadApps();
+        await this.loadApps();
       } else {
         throw new Error(response.error);
       }
-    } catch (err) {
+    } catch (err: any) {
       alert(`Failed to start app: ${err.message}`);
     }
   };
 
-  const handleStopApp = async (appId: string) => {
+  handleStopApp = async (appId: string) => {
     try {
-      const response = await electron.ipcRenderer.invoke(
+      const response = await this.props.electron.ipcRenderer.invoke(
         'node-orchestrator:stop-app',
-        { siteId: site.id, appId }
+        { siteId: this.props.site.id, appId }
       );
 
       if (response.success) {
-        await loadApps();
+        await this.loadApps();
       } else {
         throw new Error(response.error);
       }
-    } catch (err) {
+    } catch (err: any) {
       alert(`Failed to stop app: ${err.message}`);
     }
   };
 
-  const handleRemoveApp = async (appId: string) => {
+  handleRemoveApp = async (appId: string) => {
     if (!confirm('Are you sure you want to remove this app?')) {
       return;
     }
 
     try {
-      const response = await electron.ipcRenderer.invoke(
+      const response = await this.props.electron.ipcRenderer.invoke(
         'node-orchestrator:remove-app',
-        { siteId: site.id, appId }
+        { siteId: this.props.site.id, appId }
       );
 
       if (response.success) {
-        await loadApps();
+        await this.loadApps();
       } else {
         throw new Error(response.error);
       }
-    } catch (err) {
+    } catch (err: any) {
       alert(`Failed to remove app: ${err.message}`);
     }
   };
 
-  const handleViewLogs = (app: NodeApp) => {
-    setSelectedApp(app);
-    setShowLogs(true);
+  handleViewLogs = (app: NodeApp) => {
+    this.setState({ selectedApp: app, showLogs: true });
   };
 
-  if (loading) {
+  render() {
+    const { apps, loading, error, showAddModal, selectedApp, showLogs } = this.state;
+    const { site, electron } = this.props;
+
+    if (loading) {
     return (
       <div style={{ padding: '20px', textAlign: 'center' }}>
         <Spinner />
@@ -144,83 +164,84 @@ const NodeAppsTab: React.FC<NodeAppsTabProps> = ({ site, electron }) => {
     );
   }
 
-  if (error) {
+    if (error) {
+      return (
+        <div style={{ padding: '20px' }}>
+          <Banner variant="error">
+            {error}
+            <Button onClick={this.loadApps} size="small">Retry</Button>
+          </Banner>
+        </div>
+      );
+    }
+
     return (
       <div style={{ padding: '20px' }}>
-        <Banner variant="error">
-          {error}
-          <Button onClick={loadApps} size="small">Retry</Button>
-        </Banner>
+        <div style={{
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '20px'
+        }}>
+          <Title level={2}>Node.js Applications</Title>
+          <Button
+            variant="primary"
+            onClick={() => this.setState({ showAddModal: true })}
+          >
+            Add Node.js App
+          </Button>
+        </div>
+
+        {apps.length === 0 ? (
+          <Card>
+            <div style={{ textAlign: 'center', padding: '40px' }}>
+              <Text>No Node.js apps configured for this site.</Text>
+              <br />
+              <Button
+                variant="primary"
+                onClick={() => this.setState({ showAddModal: true })}
+                style={{ marginTop: '20px' }}
+              >
+                Add Your First App
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+            {apps.map(app => (
+              <AppCard
+                key={app.id}
+                app={app}
+                onStart={() => this.handleStartApp(app.id)}
+                onStop={() => this.handleStopApp(app.id)}
+                onRemove={() => this.handleRemoveApp(app.id)}
+                onViewLogs={() => this.handleViewLogs(app)}
+                site={site}
+              />
+            ))}
+          </div>
+        )}
+
+        {showAddModal && (
+          <AddAppModal
+            isOpen={showAddModal}
+            onClose={() => this.setState({ showAddModal: false })}
+            onAdd={this.handleAddApp}
+          />
+        )}
+
+        {showLogs && selectedApp && (
+          <AppLogs
+            isOpen={showLogs}
+            onClose={() => this.setState({ showLogs: false })}
+            app={selectedApp}
+            siteId={site.id}
+            electron={electron}
+          />
+        )}
       </div>
     );
   }
-
-  return (
-    <div style={{ padding: '20px' }}>
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        alignItems: 'center',
-        marginBottom: '20px'
-      }}>
-        <Title level={2}>Node.js Applications</Title>
-        <Button 
-          variant="primary"
-          onClick={() => setShowAddModal(true)}
-        >
-          Add Node.js App
-        </Button>
-      </div>
-
-      {apps.length === 0 ? (
-        <Card>
-          <div style={{ textAlign: 'center', padding: '40px' }}>
-            <Text>No Node.js apps configured for this site.</Text>
-            <br />
-            <Button 
-              variant="primary"
-              onClick={() => setShowAddModal(true)}
-              style={{ marginTop: '20px' }}
-            >
-              Add Your First App
-            </Button>
-          </div>
-        </Card>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-          {apps.map(app => (
-            <AppCard
-              key={app.id}
-              app={app}
-              onStart={() => handleStartApp(app.id)}
-              onStop={() => handleStopApp(app.id)}
-              onRemove={() => handleRemoveApp(app.id)}
-              onViewLogs={() => handleViewLogs(app)}
-              site={site}
-            />
-          ))}
-        </div>
-      )}
-
-      {showAddModal && (
-        <AddAppModal
-          isOpen={showAddModal}
-          onClose={() => setShowAddModal(false)}
-          onAdd={handleAddApp}
-        />
-      )}
-
-      {showLogs && selectedApp && (
-        <AppLogs
-          isOpen={showLogs}
-          onClose={() => setShowLogs(false)}
-          app={selectedApp}
-          siteId={site.id}
-          electron={electron}
-        />
-      )}
-    </div>
-  );
-};
+}
 
 export default NodeAppsTab;
