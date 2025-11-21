@@ -240,6 +240,13 @@ export class NodeAppManager {
       const logFile = path.join(logsDir, `${appId}.log`);
       const logStream = fs.createWriteStream(logFile, { flags: 'a' });
 
+      // Log spawn details
+      logStream.write(`\n=== Starting app at ${new Date().toISOString()} ===\n`);
+      logStream.write(`Working directory: ${appDir}\n`);
+      logStream.write(`Command: ${command} ${args.join(' ')}\n`);
+      logStream.write(`PORT: ${env.PORT}\n`);
+      logStream.write(`========================================\n\n`);
+
       // Spawn process with security: shell: false prevents command injection
       const child = spawn(command, args, {
         cwd: appDir,
@@ -247,6 +254,13 @@ export class NodeAppManager {
         shell: false, // Critical for security
         detached: false
       });
+
+      // Immediately log if spawn succeeded
+      if (child.pid) {
+        logStream.write(`Process spawned with PID: ${child.pid}\n`);
+      } else {
+        logStream.write(`WARNING: Process spawned but no PID assigned\n`);
+      }
 
       // Store process reference
       this.runningProcesses.set(appId, child);
@@ -263,7 +277,12 @@ export class NodeAppManager {
 
       // Handle process exit
       child.on('exit', async (code, signal) => {
-        logStream.write(`Process exited with code ${code} and signal ${signal}\n`);
+        const exitMessage = `\n=== Process exited at ${new Date().toISOString()} ===\nExit code: ${code}\nSignal: ${signal}\n`;
+        logStream.write(exitMessage);
+
+        // Log to console for debugging
+        console.log(`[NodeAppManager] App ${app.name} (${appId}) exited with code ${code}`);
+
         logStream.end();
 
         this.runningProcesses.delete(appId);
@@ -271,13 +290,19 @@ export class NodeAppManager {
         if (updatedApp) {
           updatedApp.status = 'stopped';
           updatedApp.pid = undefined;
+          updatedApp.lastError = code !== 0 ? `Process exited with code ${code}` : undefined;
           await this.configManager.saveApp(siteId, sitePath, updatedApp);
         }
       });
 
       // Handle process error
       child.on('error', async (error) => {
-        logStream.write(`Process error: ${error.message}\n`);
+        const errorMessage = `\n=== Process ERROR at ${new Date().toISOString()} ===\nError: ${error.message}\nStack: ${error.stack}\n`;
+        logStream.write(errorMessage);
+
+        // Log to console for debugging
+        console.error(`[NodeAppManager] App ${app.name} (${appId}) error:`, error);
+
         logStream.end();
 
         const updatedApp = await this.configManager.getApp(siteId, sitePath, appId);
