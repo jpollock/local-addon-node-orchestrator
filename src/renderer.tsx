@@ -28,7 +28,6 @@ export default function (context: any): void {
           installCommand: '',
           buildCommand: '',
           startCommand: 'npm start',
-          nodeVersion: '20.x',
           autoStart: false,
           env: {}
         }
@@ -113,8 +112,8 @@ export default function (context: any): void {
                 installCommand: '',
                 buildCommand: '',
                 startCommand: 'npm start',
-                nodeVersion: '20.x',
-                autoStart: false
+                autoStart: false,
+                env: {}
               }
             });
             await this.loadApps();
@@ -200,7 +199,6 @@ export default function (context: any): void {
             installCommand: app.installCommand,
             buildCommand: app.buildCommand || '',
             startCommand: app.startCommand,
-            nodeVersion: app.nodeVersion,
             autoStart: app.autoStart,
             env: app.env || {}
           }
@@ -231,8 +229,8 @@ export default function (context: any): void {
                 installCommand: '',
                 buildCommand: '',
                 startCommand: 'npm start',
-                nodeVersion: '20.x',
-                autoStart: false
+                autoStart: false,
+                env: {}
               }
             });
             await this.loadApps();
@@ -257,8 +255,8 @@ export default function (context: any): void {
             installCommand: '',
             buildCommand: '',
             startCommand: 'npm start',
-            nodeVersion: '20.x',
-            autoStart: false
+            autoStart: false,
+            env: {}
           }
         });
       };
@@ -354,12 +352,10 @@ export default function (context: any): void {
           this.renderInput('App Name *', 'name', formData.name, 'my-app', true, 'Lowercase, numbers, dashes only'),
           this.renderInput('Git Repository URL *', 'gitUrl', formData.gitUrl, 'https://github.com/user/repo.git', true),
           this.renderInput('Branch', 'branch', formData.branch, 'main'),
-          this.renderSelect('Node Version', 'nodeVersion', formData.nodeVersion, [
-            { value: '18.x', label: 'Node.js 18.x' },
-            { value: '20.x', label: 'Node.js 20.x' },
-            { value: '21.x', label: 'Node.js 21.x' },
-            { value: '22.x', label: 'Node.js 22.x' }
-          ]),
+          React.createElement('div', { style: { marginBottom: '15px', padding: '12px', backgroundColor: '#e7f3ff', border: '1px solid #b3d9ff', borderRadius: '4px' } },
+            React.createElement('div', { style: { fontWeight: 'bold', marginBottom: '5px', color: '#007cba' } }, 'ℹ️ Node.js Version'),
+            React.createElement('div', { style: { fontSize: '13px', color: '#555' } }, 'Apps use Local\'s bundled Node.js (no installation required)')
+          ),
           this.renderInput('Install Command', 'installCommand', formData.installCommand, 'Auto-detected', false, 'Leave empty to auto-detect'),
           this.renderInput('Build Command', 'buildCommand', formData.buildCommand, 'npm run build (optional)'),
           this.renderInput('Start Command', 'startCommand', formData.startCommand, 'npm start'),
@@ -446,7 +442,6 @@ export default function (context: any): void {
                   React.createElement('div', { style: { fontSize: '13px', color: '#666', marginBottom: '10px' } },
                     React.createElement('div', null, `Git: ${app.gitUrl}`),
                     React.createElement('div', null, `Branch: ${app.branch}`),
-                    React.createElement('div', null, `Node: ${app.nodeVersion}`),
                     app.port && React.createElement('div', { style: { marginTop: '5px' } },
                       'Port: ',
                       app.status === 'running'

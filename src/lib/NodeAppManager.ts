@@ -278,14 +278,23 @@ export class NodeAppManager {
       }
 
       // Use validated and sanitized command
-      const [command, ...args] = commandValidation.sanitizedCommand!;
+      let [command, ...args] = commandValidation.sanitizedCommand!;
+
+      // Use Local's bundled Node.js instead of system node
+      // This ensures end users don't need Node.js installed
+      if (command === 'node') {
+        command = process.execPath;
+        console.log(`[NodeAppManager] Using Local's bundled Node.js: ${command}`);
+      }
 
       // Build environment variables
       const env = {
         ...process.env,
         ...app.env,
         PORT: app.port?.toString() || '3000',
-        NODE_ENV: 'development'
+        NODE_ENV: 'development',
+        // Enable Node.js mode in Electron (required for process.execPath)
+        ELECTRON_RUN_AS_NODE: '1'
       };
 
       // Create logs directory in site's logs folder (proper location)
@@ -306,6 +315,7 @@ export class NodeAppManager {
       // Log spawn details
       logStream.write(`\n=== Starting app at ${new Date().toISOString()} ===\n`);
       logStream.write(`Working directory: ${appDir}\n`);
+      logStream.write(`Node.js: ${command === process.execPath ? `Local bundled (${command})` : command}\n`);
       logStream.write(`Command: ${command} ${args.join(' ')}\n`);
       logStream.write(`PORT: ${env.PORT}\n`);
       logStream.write(`========================================\n\n`);
