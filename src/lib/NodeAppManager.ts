@@ -290,17 +290,24 @@ export class NodeAppManager {
         logStream.write(exitMessage);
 
         // Log to console for debugging
-        console.log(`[NodeAppManager] App ${app.name} (${appId}) exited with code ${code}`);
+        console.log(`[NodeAppManager] App ${app.name} (${appId}) exited with code ${code}, signal: ${signal}`);
 
         logStream.end();
 
         this.runningProcesses.delete(appId);
         const updatedApp = await this.configManager.getApp(siteId, sitePath, appId);
         if (updatedApp) {
-          updatedApp.status = 'stopped';
-          updatedApp.pid = undefined;
-          updatedApp.lastError = code !== 0 ? `Process exited with code ${code}` : undefined;
-          await this.configManager.saveApp(siteId, sitePath, updatedApp);
+          // Only update status if we're not in the middle of a managed stop (stopApp handles that)
+          // If status is 'stopping', stopApp() will handle the final 'stopped' status
+          if (updatedApp.status !== 'stopping') {
+            updatedApp.status = 'stopped';
+            updatedApp.pid = undefined;
+            updatedApp.lastError = code !== 0 ? `Process exited with code ${code}` : undefined;
+            await this.configManager.saveApp(siteId, sitePath, updatedApp);
+            console.log(`[NodeAppManager] Exit handler updated status to stopped for ${app.name}`);
+          } else {
+            console.log(`[NodeAppManager] Exit handler skipping status update (app is being stopped by stopApp)`);
+          }
         }
       });
 
@@ -358,28 +365,64 @@ export class NodeAppManager {
     // Stop the process if we're managing it
     const child = this.runningProcesses.get(appId);
     if (child && child.pid) {
-      return new Promise((resolve) => {
+      return new Promise((resolve, reject) => {
         // Kill entire process tree to ensure cleanup of child processes
-        treeKill(child.pid!, 'SIGTERM', async (error: any) => {
+        treeKill(child.pid!, 'SIGTERM', (error: any) => {
           if (error) {
+            console.log(`[NodeAppManager] SIGTERM failed, trying SIGKILL for ${appId}`);
             // Try force kill if graceful termination fails
-            treeKill(child.pid!, 'SIGKILL', async () => {
+            treeKill(child.pid!, 'SIGKILL', (_killError: any) => {
               this.runningProcesses.delete(appId);
-              app.status = 'stopped';
-              app.pid = undefined;
-              await this.configManager.saveApp(siteId, sitePath, app);
-              resolve(app);
+              // Get fresh app data to avoid stale state
+              this.configManager.getApp(siteId, sitePath, appId)
+                .then((freshApp) => {
+                  if (freshApp) {
+                    freshApp.status = 'stopped';
+                    freshApp.pid = undefined;
+                    return this.configManager.saveApp(siteId, sitePath, freshApp);
+                  }
+                  return Promise.resolve();
+                })
+                .then(() => {
+                  console.log(`[NodeAppManager] App ${appId} stopped (SIGKILL)`);
+                  // Return the original app object with updated status
+                  app.status = 'stopped';
+                  app.pid = undefined;
+                  resolve(app);
+                })
+                .catch((saveError) => {
+                  console.error(`[NodeAppManager] Error saving stopped app:`, saveError);
+                  reject(saveError);
+                });
             });
           } else {
+            console.log(`[NodeAppManager] App ${appId} stopped successfully (SIGTERM)`);
             this.runningProcesses.delete(appId);
-            app.status = 'stopped';
-            app.pid = undefined;
-            await this.configManager.saveApp(siteId, sitePath, app);
-            resolve(app);
+            // Get fresh app data to avoid stale state
+            this.configManager.getApp(siteId, sitePath, appId)
+              .then((freshApp) => {
+                if (freshApp) {
+                  freshApp.status = 'stopped';
+                  freshApp.pid = undefined;
+                  return this.configManager.saveApp(siteId, sitePath, freshApp);
+                }
+                return Promise.resolve();
+              })
+              .then(() => {
+                // Return the original app object with updated status
+                app.status = 'stopped';
+                app.pid = undefined;
+                resolve(app);
+              })
+              .catch((saveError) => {
+                console.error(`[NodeAppManager] Error saving stopped app:`, saveError);
+                reject(saveError);
+              });
           }
         });
       });
     } else {
+      console.log(`[NodeAppManager] No running process for ${appId}, just updating status`);
       // No running process, just update status
       app.status = 'stopped';
       app.pid = undefined;
