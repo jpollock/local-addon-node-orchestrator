@@ -64,12 +64,19 @@ const commandSchema = z
   .max(500, 'Command must be less than 500 characters');
 
 /**
- * Optional command validation
+ * Optional command validation (can be empty string or omitted)
  */
 const optionalCommandSchema = z
   .string()
   .max(500, 'Command must be less than 500 characters')
   .optional();
+
+/**
+ * Command that can be auto-detected (empty string allowed)
+ */
+const autoDetectCommandSchema = z
+  .string()
+  .max(500, 'Command must be less than 500 characters');
 
 /**
  * Node version validation
@@ -90,7 +97,7 @@ export const AddAppRequestSchema = z.object({
     name: appNameSchema,
     gitUrl: gitUrlSchema,
     branch: branchSchema,
-    installCommand: commandSchema,
+    installCommand: autoDetectCommandSchema,
     buildCommand: optionalCommandSchema,
     startCommand: commandSchema,
     nodeVersion: nodeVersionSchema,
