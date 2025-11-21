@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React from 'react';
 import {
   Modal,
   Button,
@@ -15,72 +15,100 @@ interface AppLogsProps {
   electron: any;
 }
 
-const AppLogs: React.FC<AppLogsProps> = ({
-  isOpen,
-  onClose,
-  app,
-  siteId,
-  electron
-}) => {
-  const [logs, setLogs] = useState<string[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const logsEndRef = useRef<HTMLDivElement>(null);
-  const logsContainerRef = useRef<HTMLDivElement>(null);
+interface AppLogsState {
+  logs: string[];
+  loading: boolean;
+  autoScroll: boolean;
+}
 
-  useEffect(() => {
-    if (isOpen) {
-      loadLogs();
-      const interval = setInterval(loadLogs, 2000);
-      return () => clearInterval(interval);
+class AppLogs extends React.Component<AppLogsProps, AppLogsState> {
+  private logsEndRef: HTMLDivElement | null = null;
+  private logsContainerRef: HTMLDivElement | null = null;
+  private refreshInterval?: NodeJS.Timeout;
+
+  state: AppLogsState = {
+    logs: [],
+    loading: true,
+    autoScroll: true
+  };
+
+  componentDidMount() {
+    if (this.props.isOpen) {
+      this.loadLogs();
+      this.refreshInterval = setInterval(() => this.loadLogs(), 2000);
     }
-  }, [isOpen, app.id]);
+  }
 
-  useEffect(() => {
-    if (autoScroll && logsEndRef.current) {
-      logsEndRef.current.scrollIntoView({ behavior: 'smooth' });
+  componentDidUpdate(prevProps: AppLogsProps, prevState: AppLogsState) {
+    // Handle isOpen changes
+    if (this.props.isOpen && !prevProps.isOpen) {
+      this.loadLogs();
+      this.refreshInterval = setInterval(() => this.loadLogs(), 2000);
+    } else if (!this.props.isOpen && prevProps.isOpen) {
+      if (this.refreshInterval) {
+        clearInterval(this.refreshInterval);
+      }
     }
-  }, [logs, autoScroll]);
 
-  const loadLogs = async () => {
+    // Handle auto-scroll
+    if (
+      (this.state.logs !== prevState.logs || this.state.autoScroll !== prevState.autoScroll) &&
+      this.state.autoScroll &&
+      this.logsEndRef
+    ) {
+      this.logsEndRef.scrollIntoView({ behavior: 'smooth' });
+    }
+  }
+
+  componentWillUnmount() {
+    if (this.refreshInterval) {
+      clearInterval(this.refreshInterval);
+    }
+  }
+
+  loadLogs = async () => {
     try {
-      const response = await electron.ipcRenderer.invoke(
+      const response = await this.props.electron.ipcRenderer.invoke(
         'node-orchestrator:get-logs',
         {
-          siteId,
-          appId: app.id,
+          siteId: this.props.siteId,
+          appId: this.props.app.id,
           lines: 500
         }
       );
 
       if (response.success) {
-        setLogs(response.logs || []);
+        this.setState({ logs: response.logs || [] });
       }
     } catch (error) {
       console.error('Failed to load logs:', error);
     } finally {
-      setLoading(false);
+      this.setState({ loading: false });
     }
   };
 
-  const handleClearLogs = () => {
-    setLogs([]);
+  handleClearLogs = () => {
+    this.setState({ logs: [] });
   };
 
-  const handleCopyLogs = () => {
-    const logText = logs.join('\n');
+  handleCopyLogs = () => {
+    const logText = this.state.logs.join('\n');
     navigator.clipboard.writeText(logText);
   };
 
-  const handleScroll = () => {
-    if (!logsContainerRef.current) return;
+  handleScroll = () => {
+    if (!this.logsContainerRef) return;
 
-    const { scrollTop, scrollHeight, clientHeight } = logsContainerRef.current;
+    const { scrollTop, scrollHeight, clientHeight } = this.logsContainerRef;
     const isAtBottom = scrollHeight - scrollTop - clientHeight < 10;
-    setAutoScroll(isAtBottom);
+    this.setState({ autoScroll: isAtBottom });
   };
 
-  return (
+  render() {
+    const { isOpen, onClose, app } = this.props;
+    const { logs, loading, autoScroll } = this.state;
+
+    return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
@@ -91,21 +119,21 @@ const AppLogs: React.FC<AppLogsProps> = ({
             <Button
               variant="secondary"
               size="small"
-              onClick={handleClearLogs}
+              onClick={this.handleClearLogs}
             >
               Clear
             </Button>
             <Button
               variant="secondary"
               size="small"
-              onClick={handleCopyLogs}
+              onClick={this.handleCopyLogs}
             >
               Copy All
             </Button>
             <Button
               variant={autoScroll ? 'primary' : 'secondary'}
               size="small"
-              onClick={() => setAutoScroll(!autoScroll)}
+              onClick={() => this.setState({ autoScroll: !autoScroll })}
             >
               Auto-scroll: {autoScroll ? 'ON' : 'OFF'}
             </Button>
@@ -116,8 +144,8 @@ const AppLogs: React.FC<AppLogsProps> = ({
       style={{ width: '80vw', maxWidth: '1200px' }}
     >
       <div
-        ref={logsContainerRef}
-        onScroll={handleScroll}
+        ref={(ref) => (this.logsContainerRef = ref)}
+        onScroll={this.handleScroll}
         style={{
           backgroundColor: '#1e1e1e',
           color: '#d4d4d4',
@@ -162,7 +190,7 @@ const AppLogs: React.FC<AppLogsProps> = ({
                 {line}
               </div>
             ))}
-            <div ref={logsEndRef} />
+            <div ref={(ref) => (this.logsEndRef = ref)} />
           </>
         )}
       </div>
@@ -194,7 +222,8 @@ const AppLogs: React.FC<AppLogsProps> = ({
         </Text>
       </div>
     </Modal>
-  );
-};
+    );
+  }
+}
 
 export default AppLogs;

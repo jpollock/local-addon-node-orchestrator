@@ -17,15 +17,8 @@ interface AppCardProps {
   onViewLogs: () => void;
 }
 
-const AppCard: React.FC<AppCardProps> = ({
-  app,
-  site,
-  onStart,
-  onStop,
-  onRemove,
-  onViewLogs
-}) => {
-  const getStatusColor = (status: NodeAppStatus): string => {
+class AppCard extends React.Component<AppCardProps> {
+  getStatusColor(status: NodeAppStatus): string {
     switch (status) {
       case 'running':
         return '#28a745';
@@ -42,9 +35,9 @@ const AppCard: React.FC<AppCardProps> = ({
       default:
         return '#6c757d';
     }
-  };
+  }
 
-  const getStatusIcon = (status: NodeAppStatus): string => {
+  getStatusIcon(status: NodeAppStatus): string {
     switch (status) {
       case 'running':
         return 'check-circle';
@@ -61,11 +54,13 @@ const AppCard: React.FC<AppCardProps> = ({
       default:
         return 'question-circle';
     }
-  };
+  }
 
-  const appUrl = app.port ? `http://localhost:${app.port}` : null;
+  render() {
+    const { app, site, onStart, onStop, onRemove, onViewLogs } = this.props;
+    const appUrl = app.port ? `http://localhost:${app.port}` : null;
 
-  return (
+    return (
     <Card>
       <div style={{ padding: '15px' }}>
         <div style={{ 
@@ -219,7 +214,8 @@ const AppCard: React.FC<AppCardProps> = ({
         </div>
       </div>
     </Card>
-  );
-};
+    );
+  }
+}
 
 export default AppCard;
