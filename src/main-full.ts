@@ -42,15 +42,25 @@ export default function (context: LocalMain.AddonMainContext): void {
 
   context.hooks.addAction('siteStopping', async (site: Local.Site) => {
     try {
-      const apps = await appManager.getAppsForSite(site.id, site.path);
+      localLogger.log('info', `Site stopping - checking for Node.js apps to stop`, { siteName: site.name, siteId: site.id });
 
+      const apps = await appManager.getAppsForSite(site.id, site.path);
+      localLogger.log('info', `Found ${apps.length} Node.js apps`, { apps: apps.map(a => ({ id: a.id, name: a.name, status: a.status })) });
+
+      // Stop ALL apps, regardless of status (safer approach)
+      // Apps might have status mismatch or be orphaned
+      let stoppedCount = 0;
       for (const app of apps) {
-        if (app.status === 'running') {
+        try {
+          localLogger.log('info', `Attempting to stop app ${app.name}`, { appId: app.id, status: app.status });
           await appManager.stopApp(site.id, site.path, app.id);
+          stoppedCount++;
+        } catch (error) {
+          localLogger.error(`Failed to stop app ${app.name}`, { error, appId: app.id });
         }
       }
 
-      localLogger.log('info', `Stopped Node.js apps for ${site.name}`);
+      localLogger.log('info', `Stopped ${stoppedCount} Node.js apps for ${site.name}`);
     } catch (error) {
       localLogger.error('Failed to stop Node.js apps', { error, siteId: site.id });
     }

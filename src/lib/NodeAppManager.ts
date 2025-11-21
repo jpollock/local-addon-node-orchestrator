@@ -234,10 +234,14 @@ export class NodeAppManager {
         NODE_ENV: 'development'
       };
 
-      // Create logs directory
-      const logsDir = path.join(sitePath, 'logs', 'node-apps');
+      // Create logs directory - use conf directory which we know exists
+      const logsDir = path.join(sitePath, 'conf', 'node-apps', 'logs');
       await fs.ensureDir(logsDir);
       const logFile = path.join(logsDir, `${appId}.log`);
+
+      // Log the path for debugging
+      console.log(`[NodeAppManager] Creating log file: ${logFile}`);
+
       const logStream = fs.createWriteStream(logFile, { flags: 'a' });
 
       // Log spawn details
