@@ -18,12 +18,20 @@ export default function (context: any): void {
       testIPC = async () => {
         try {
           const electron = context.electron || (window as any).electron;
-          const response = await electron.ipcRenderer.invoke('node-orchestrator:test', {
+          const response = await electron.ipcRenderer.invoke('node-orchestrator:get-apps', {
             siteId: site.id
           });
-          this.setState({ testResult: JSON.stringify(response) });
+
+          if (response.success) {
+            const appCount = response.apps?.length || 0;
+            this.setState({
+              testResult: `✅ Connection successful! ${appCount} Node.js app(s) configured for this site.`
+            });
+          } else {
+            this.setState({ testResult: `⚠️ ${response.error}` });
+          }
         } catch (error: any) {
-          this.setState({ testResult: `Error: ${error.message}` });
+          this.setState({ testResult: `❌ Error: ${error.message}` });
         }
       };
 
