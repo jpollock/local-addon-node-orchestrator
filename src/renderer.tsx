@@ -29,7 +29,8 @@ export default function (context: any): void {
           buildCommand: '',
           startCommand: 'npm start',
           nodeVersion: '20.x',
-          autoStart: false
+          autoStart: false,
+          env: {}
         }
       };
 
@@ -200,7 +201,8 @@ export default function (context: any): void {
             buildCommand: app.buildCommand || '',
             startCommand: app.startCommand,
             nodeVersion: app.nodeVersion,
-            autoStart: app.autoStart
+            autoStart: app.autoStart,
+            env: app.env || {}
           }
         });
       };
@@ -287,6 +289,26 @@ export default function (context: any): void {
         this.setState({ showLogsFor: null, logs: '' });
       };
 
+      envObjectToString = (env: any) => {
+        return Object.entries(env || {})
+          .map(([key, value]) => `${key}=${value}`)
+          .join('\n');
+      };
+
+      envStringToObject = (envString: string) => {
+        const env: any = {};
+        envString.split('\n').forEach((line) => {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            const [key, ...valueParts] = trimmed.split('=');
+            if (key) {
+              env[key.trim()] = valueParts.join('=').trim();
+            }
+          }
+        });
+        return env;
+      };
+
       render() {
         const { name, domain } = this.props.site;
         const { showForm, testResult } = this.state;
@@ -341,6 +363,17 @@ export default function (context: any): void {
           this.renderInput('Install Command', 'installCommand', formData.installCommand, 'Auto-detected', false, 'Leave empty to auto-detect'),
           this.renderInput('Build Command', 'buildCommand', formData.buildCommand, 'npm run build (optional)'),
           this.renderInput('Start Command', 'startCommand', formData.startCommand, 'npm start'),
+          React.createElement('div', { style: { marginBottom: '15px' } },
+            React.createElement('label', { style: { display: 'block', marginBottom: '5px', fontWeight: 'bold' } }, 'Environment Variables'),
+            React.createElement('textarea', {
+              value: this.envObjectToString(formData.env),
+              onChange: (e: any) => this.handleInputChange('env', this.envStringToObject(e.target.value)),
+              placeholder: 'KEY=value\nANOTHER_KEY=another value\n\nOne per line',
+              rows: 5,
+              style: { width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd', fontFamily: 'monospace', fontSize: '13px' }
+            }),
+            React.createElement('small', { style: { color: '#666' } }, 'Optional: Add environment variables in KEY=VALUE format, one per line')
+          ),
           React.createElement('div', { style: { marginBottom: '15px' } },
             React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
               React.createElement('input', {
