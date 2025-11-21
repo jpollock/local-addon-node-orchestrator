@@ -32,6 +32,7 @@ import {
   UpdateEnvRequestSchema,
   validate
 } from './security/schemas';
+import { logAndSanitizeError } from './security/errors';
 
 export default function (context: LocalMain.AddonMainContext): void {
   const { electron } = context;
@@ -99,6 +100,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Validate input
       const validation = validate(AddAppRequestSchema, request);
       if (!validation.success) {
+        localLogger.warn('Invalid add-app request', { validationError: validation.error });
         return {
           success: false,
           error: `Invalid request: ${validation.error}`
@@ -108,20 +110,31 @@ export default function (context: LocalMain.AddonMainContext): void {
       const validatedRequest = validation.data;
       const site = siteData.getSite(validatedRequest.siteId);
       if (!site) {
-        throw new Error(`Site ${validatedRequest.siteId} not found`);
+        localLogger.warn('Site not found for add-app request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
       }
 
+      localLogger.info('Adding Node.js app', {
+        siteId: validatedRequest.siteId,
+        appName: validatedRequest.app.name
+      });
+
       const app = await appManager.addApp(site, validatedRequest.app);
+
+      localLogger.info('Successfully added Node.js app', {
+        siteId: validatedRequest.siteId,
+        appId: app.id
+      });
 
       return {
         success: true,
         app
       };
-    } catch (error: any) {
-      localLogger.error('Failed to add Node.js app', { error });
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to add Node.js app', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizedError
       };
     }
   });
@@ -131,6 +144,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Validate input
       const validation = validate(RemoveAppRequestSchema, request);
       if (!validation.success) {
+        localLogger.warn('Invalid remove-app request', { validationError: validation.error });
         return {
           success: false,
           error: `Invalid request: ${validation.error}`
@@ -138,13 +152,25 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+
+      localLogger.info('Removing Node.js app', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       await appManager.removeApp(validatedRequest.siteId, validatedRequest.appId);
+
+      localLogger.info('Successfully removed Node.js app', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       return { success: true };
-    } catch (error: any) {
-      localLogger.error('Failed to remove Node.js app', { error });
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to remove Node.js app', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizedError
       };
     }
   });
@@ -154,6 +180,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Validate input
       const validation = validate(StartAppRequestSchema, request);
       if (!validation.success) {
+        localLogger.warn('Invalid start-app request', { validationError: validation.error });
         return {
           success: false,
           error: `Invalid request: ${validation.error}`
@@ -161,16 +188,27 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      localLogger.info('Starting Node.js app', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       const app = await appManager.startApp(validatedRequest.siteId, validatedRequest.appId);
+
+      localLogger.info('Successfully started Node.js app', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       return {
         success: true,
         app
       };
-    } catch (error: any) {
-      localLogger.error('Failed to start Node.js app', { error });
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to start Node.js app', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizedError
       };
     }
   });
@@ -180,6 +218,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Validate input
       const validation = validate(StopAppRequestSchema, request);
       if (!validation.success) {
+        localLogger.warn('Invalid stop-app request', { validationError: validation.error });
         return {
           success: false,
           error: `Invalid request: ${validation.error}`
@@ -187,16 +226,27 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      localLogger.info('Stopping Node.js app', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       const app = await appManager.stopApp(validatedRequest.siteId, validatedRequest.appId);
+
+      localLogger.info('Successfully stopped Node.js app', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       return {
         success: true,
         app
       };
-    } catch (error: any) {
-      localLogger.error('Failed to stop Node.js app', { error });
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to stop Node.js app', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizedError
       };
     }
   });
@@ -206,6 +256,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Validate input
       const validation = validate(GetAppsRequestSchema, request);
       if (!validation.success) {
+        localLogger.warn('Invalid get-apps request', { validationError: validation.error });
         return {
           success: false,
           error: `Invalid request: ${validation.error}`
@@ -218,11 +269,11 @@ export default function (context: LocalMain.AddonMainContext): void {
         success: true,
         apps
       };
-    } catch (error: any) {
-      localLogger.error('Failed to get Node.js apps', { error });
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to get Node.js apps', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizedError
       };
     }
   });
@@ -232,6 +283,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Validate input
       const validation = validate(GetLogsRequestSchema, request);
       if (!validation.success) {
+        localLogger.warn('Invalid get-logs request', { validationError: validation.error });
         return {
           success: false,
           error: `Invalid request: ${validation.error}`
@@ -248,11 +300,11 @@ export default function (context: LocalMain.AddonMainContext): void {
         success: true,
         logs
       };
-    } catch (error: any) {
-      localLogger.error('Failed to get app logs', { error });
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to get app logs', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizedError
       };
     }
   });
@@ -262,6 +314,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Validate input
       const validation = validate(UpdateEnvRequestSchema, request);
       if (!validation.success) {
+        localLogger.warn('Invalid update-env request', { validationError: validation.error });
         return {
           success: false,
           error: `Invalid request: ${validation.error}`
@@ -269,6 +322,11 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       const validatedRequest = validation.data;
+      localLogger.info('Updating app environment', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       await appManager.updateAppEnv(
         validatedRequest.siteId,
         validatedRequest.appId,
@@ -278,15 +336,24 @@ export default function (context: LocalMain.AddonMainContext): void {
       // Restart app if running
       const app = await appManager.getApp(validatedRequest.siteId, validatedRequest.appId);
       if (app && app.status === 'running') {
+        localLogger.info('Restarting app after env update', {
+          siteId: validatedRequest.siteId,
+          appId: validatedRequest.appId
+        });
         await appManager.restartApp(validatedRequest.siteId, validatedRequest.appId);
       }
 
+      localLogger.info('Successfully updated app environment', {
+        siteId: validatedRequest.siteId,
+        appId: validatedRequest.appId
+      });
+
       return { success: true };
-    } catch (error: any) {
-      localLogger.error('Failed to update app environment', { error });
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to update app environment', error);
       return {
         success: false,
-        error: error.message
+        error: sanitizedError
       };
     }
   });
