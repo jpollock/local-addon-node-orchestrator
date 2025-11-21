@@ -1,7 +1,9 @@
 /**
  * Security validation module for Node.js Orchestrator addon
- * Prevents command injection and validates user input
+ * Prevents command injection, path traversal, and validates user input
  */
+
+import * as path from 'path';
 
 /**
  * Allowed commands and their permitted subcommands
@@ -181,4 +183,152 @@ export function validateBuildCommand(command: string): CommandValidationResult {
   }
 
   return result;
+}
+
+/**
+ * Path validation result interface
+ */
+export interface PathValidationResult {
+  valid: boolean;
+  sanitizedPath?: string;
+  error?: string;
+}
+
+/**
+ * Validates an app ID to ensure it doesn't contain path traversal characters
+ *
+ * @param appId - The app ID to validate
+ * @returns Validation result
+ */
+export function validateAppId(appId: string): PathValidationResult {
+  if (!appId || typeof appId !== 'string') {
+    return {
+      valid: false,
+      error: 'App ID must be a non-empty string'
+    };
+  }
+
+  const trimmedId = appId.trim();
+
+  if (!trimmedId) {
+    return {
+      valid: false,
+      error: 'App ID cannot be empty'
+    };
+  }
+
+  // Check for path traversal attempts
+  if (trimmedId.includes('..')) {
+    return {
+      valid: false,
+      error: 'App ID cannot contain ".." (path traversal attempt detected)'
+    };
+  }
+
+  // Check for path separators
+  if (trimmedId.includes('/') || trimmedId.includes('\\')) {
+    return {
+      valid: false,
+      error: 'App ID cannot contain path separators (/ or \\)'
+    };
+  }
+
+  // Check for absolute path indicators
+  if (trimmedId.startsWith('/') || /^[a-zA-Z]:/.test(trimmedId)) {
+    return {
+      valid: false,
+      error: 'App ID cannot be an absolute path'
+    };
+  }
+
+  // App ID should be UUID or safe identifier
+  // Allow alphanumeric, hyphens, and underscores only
+  if (!/^[a-zA-Z0-9_-]+$/.test(trimmedId)) {
+    return {
+      valid: false,
+      error: 'App ID contains invalid characters. Only alphanumeric, hyphens, and underscores allowed'
+    };
+  }
+
+  return {
+    valid: true,
+    sanitizedPath: trimmedId
+  };
+}
+
+/**
+ * Validates a file path to prevent path traversal attacks
+ *
+ * @param basePath - The base directory that the path should be within
+ * @param targetPath - The target path to validate
+ * @param pathDescription - Description of what this path is for (for error messages)
+ * @returns Validation result with sanitized path
+ */
+export function validatePath(
+  basePath: string,
+  targetPath: string,
+  pathDescription: string = 'path'
+): PathValidationResult {
+  if (!targetPath || typeof targetPath !== 'string') {
+    return {
+      valid: false,
+      error: `${pathDescription} must be a non-empty string`
+    };
+  }
+
+  if (!basePath || typeof basePath !== 'string') {
+    return {
+      valid: false,
+      error: 'Base path must be a non-empty string'
+    };
+  }
+
+  // Check for null bytes (can be used to bypass filters)
+  if (targetPath.includes('\0')) {
+    return {
+      valid: false,
+      error: `${pathDescription} contains null bytes (potential attack detected)`
+    };
+  }
+
+  // Construct the full path
+  const fullPath = path.join(basePath, targetPath);
+
+  // Resolve to absolute path (resolves .. and . and symlinks)
+  const resolvedPath = path.resolve(fullPath);
+  const resolvedBase = path.resolve(basePath);
+
+  // Ensure the resolved path is still within the base directory
+  if (!resolvedPath.startsWith(resolvedBase + path.sep) && resolvedPath !== resolvedBase) {
+    return {
+      valid: false,
+      error: `${pathDescription} escapes the base directory (path traversal attempt detected)`
+    };
+  }
+
+  return {
+    valid: true,
+    sanitizedPath: resolvedPath
+  };
+}
+
+/**
+ * Validates an app directory path
+ *
+ * @param baseAppsDirectory - The base directory for all apps
+ * @param appId - The app ID
+ * @returns Validation result with sanitized path
+ */
+export function validateAppPath(
+  baseAppsDirectory: string,
+  appId: string
+): PathValidationResult {
+  // First validate the app ID itself
+  const idValidation = validateAppId(appId);
+  if (!idValidation.valid) {
+    return idValidation;
+  }
+
+  // Then validate the constructed path
+  return validatePath(baseAppsDirectory, appId, 'app directory');
 }

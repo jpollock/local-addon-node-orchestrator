@@ -5,7 +5,7 @@ import * as fs from 'fs-extra';
 import { ChildProcess, spawn } from 'child_process';
 import * as treeKill from 'tree-kill';
 import { NodeApp, NodeAppStatus } from '../types';
-import { validateStartCommand } from '../security/validation';
+import { validateStartCommand, validateAppPath } from '../security/validation';
 
 export default class NodeOrchestratorService extends LocalMain.LightningService {
   readonly serviceName = 'node-orchestrator';
@@ -98,8 +98,14 @@ export default class NodeOrchestratorService extends LocalMain.LightningService 
         throw new Error(`Invalid start command: ${commandValidation.error}`);
       }
 
-      // Get app directory
-      const appDir = path.join(this.getAppsDirectory(), app.id);
+      // Validate app path to prevent path traversal
+      const pathValidation = validateAppPath(this.getAppsDirectory(), app.id);
+      if (!pathValidation.valid) {
+        throw new Error(`Invalid app path: ${pathValidation.error}`);
+      }
+
+      // Get validated app directory
+      const appDir = pathValidation.sanitizedPath!;
       const logFile = path.join(this.getLogsDirectory(), `${app.id}.log`);
 
       // Check if directory exists
