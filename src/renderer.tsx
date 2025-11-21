@@ -19,6 +19,8 @@ export default function (context: any): void {
         editingAppId: null,
         loading: false,
         apps: [],
+        showLogsFor: null,
+        logs: '',
         formData: {
           name: '',
           gitUrl: '',
@@ -259,6 +261,32 @@ export default function (context: any): void {
         });
       };
 
+      handleViewLogs = async (appId: string) => {
+        try {
+          const electron = context.electron || (window as any).electron;
+          const response = await electron.ipcRenderer.invoke('node-orchestrator:get-logs', {
+            siteId: site.id,
+            appId,
+            lines: 100
+          });
+
+          if (response.success) {
+            this.setState({
+              showLogsFor: appId,
+              logs: response.logs || 'No logs available yet.'
+            });
+          } else {
+            this.setState({ testResult: `❌ Failed to get logs: ${response.error}` });
+          }
+        } catch (error: any) {
+          this.setState({ testResult: `❌ Error: ${error.message}` });
+        }
+      };
+
+      handleCloseLogs = () => {
+        this.setState({ showLogsFor: null, logs: '' });
+      };
+
       render() {
         const { name, domain } = this.props.site;
         const { showForm, testResult } = this.state;
@@ -397,7 +425,7 @@ export default function (context: any): void {
                         : React.createElement('span', { style: { fontWeight: 'bold' } }, app.port)
                     )
                   ),
-                  React.createElement('div', { style: { display: 'flex', gap: '8px' } },
+                  React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
                     app.status === 'stopped' && React.createElement('button', {
                       onClick: () => this.handleStartApp(app.id),
                       style: { padding: '6px 12px', backgroundColor: '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
@@ -407,6 +435,10 @@ export default function (context: any): void {
                       style: { padding: '6px 12px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
                     }, 'Stop'),
                     React.createElement('button', {
+                      onClick: () => this.handleViewLogs(app.id),
+                      style: { padding: '6px 12px', backgroundColor: '#7c3aed', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
+                    }, 'View Logs'),
+                    React.createElement('button', {
                       onClick: () => this.handleEditApp(app),
                       style: { padding: '6px 12px', backgroundColor: '#007cba', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
                     }, 'Edit'),
@@ -414,9 +446,40 @@ export default function (context: any): void {
                       onClick: () => this.handleRemoveApp(app.id, app.name),
                       style: { padding: '6px 12px', backgroundColor: '#666', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
                     }, 'Remove')
-                  )
+                  ),
+                  this.state.showLogsFor === app.id && this.renderLogsViewer(app.name)
                 ))
               )
+        );
+      }
+
+      renderLogsViewer(appName: string) {
+        return React.createElement('div', {
+          style: {
+            marginTop: '15px',
+            backgroundColor: '#1e1e1e',
+            color: '#d4d4d4',
+            padding: '15px',
+            borderRadius: '8px',
+            fontFamily: 'monospace',
+            fontSize: '12px',
+            maxHeight: '400px',
+            overflowY: 'auto',
+            position: 'relative'
+          }
+        },
+          React.createElement('div', {
+            style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }
+          },
+            React.createElement('strong', { style: { color: '#569cd6' } }, `Logs for ${appName}`),
+            React.createElement('button', {
+              onClick: this.handleCloseLogs,
+              style: { padding: '4px 8px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '11px' }
+            }, 'Close')
+          ),
+          React.createElement('pre', {
+            style: { margin: 0, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }
+          }, this.state.logs)
         );
       }
     }
