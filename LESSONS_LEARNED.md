@@ -26,30 +26,46 @@ class MyComponent extends React.Component {
 
 **Why**: Local provides React via context, which can cause React instance conflicts that break hooks.
 
-### 2. IPC Handler Registration Issues (UNRESOLVED)
+### 2. IPC Handler Registration Issues (✅ RESOLVED)
 
 **Problem**: "No handler registered for 'addon-name:command'" error
 
-**Current Status**: IPC handlers appear in compiled code but don't actually register. This appears to be a caching or loading issue with Local.
+**Root Cause**: Used non-existent `LocalMain.addIpcAsyncListener()` method. Local addons should use Electron's native IPC API directly.
 
-**Attempted Solutions**:
+**Solution**:
 ```typescript
-// ✅ Code compiles correctly
+// ❌ WRONG - This method doesn't exist
 LocalMain.addIpcAsyncListener('addon:command', async (data) => {
   return { success: true, data };
 });
 
-// ❌ But handlers don't actually register at runtime
-// Even with try/catch, no errors are thrown
-// Local may be caching old version of main.js
+// ✅ CORRECT - Use Electron's ipcMain directly
+import { ipcMain } from 'electron';
+
+ipcMain.handle('node-orchestrator:test', async (_event, request: unknown) => {
+  try {
+    // Validate input
+    const validation = validate(RequestSchema, request);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    // Process request
+    const result = await doWork(validation.data);
+    return { success: true, ...result };
+  } catch (error: unknown) {
+    const sanitizedError = logAndSanitizeError(localLogger, 'Operation failed', error);
+    return { success: false, error: sanitizedError };
+  }
+});
 ```
 
-**Workarounds Tried**:
-- Version bumping package.json
-- Renaming addon
-- Adding extensive logging
-- Wrapping in try/catch
-- None have resolved the issue
+**Key Takeaways**:
+- Always use `ipcMain.handle()` from 'electron' package
+- Parameters: `_event` (unused), `request: unknown` (validate before use)
+- Always return `{ success: boolean, ... }` response format
+- Wrap in try/catch with error sanitization
+- Type request parameter as `unknown` and validate
 
 ### 3. Component Not Rendering
 
@@ -184,17 +200,169 @@ const response = await electron.ipcRenderer.invoke('node-orchestrator:test', {
 5. **Build step is mandatory** - TypeScript must compile to JavaScript
 6. **productName is required** - Addon won't load without it
 
-## Current Blockers (September 2025)
+## Security Best Practices (Implemented)
 
-1. **IPC Handler Registration** - Handlers in code but not registering at runtime
-   - Appears to be Local caching issue
-   - No clear error messages
-   - Version bumping doesn't force reload
+### 1. Input Validation with Zod
 
-2. **Local Addon Caching** - Changes to main.js don't always reload
-   - Requires complete Local restart
-   - Sometimes requires removing/re-adding symlink
-   - No documented cache clearing method
+**Why**: Untrusted data from renderer process must be validated before use.
+
+**Implementation**:
+```typescript
+import { z } from 'zod';
+
+// Define schema
+export const AddAppRequestSchema = z.object({
+  siteId: z.string().uuid(),
+  app: z.object({
+    name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/),
+    gitUrl: z.string().url(),
+    startCommand: z.string().min(1).max(500),
+    // ... more fields
+  })
+});
+
+// Validate in handler
+const validation = validate(AddAppRequestSchema, request);
+if (!validation.success) {
+  return { success: false, error: validation.error };
+}
+```
+
+**Benefits**:
+- Type-safe validated data
+- Clear error messages for invalid input
+- Prevents injection attacks at the boundary
+- Self-documenting API
+
+### 2. Command Validation (Whitelist-Based)
+
+**Why**: User-provided commands can enable shell injection attacks.
+
+**Implementation**:
+```typescript
+const AllowedCommands = {
+  npm: ['start', 'run', 'install', 'build', 'test', 'dev', 'ci'],
+  yarn: ['start', 'run', 'install', 'build', 'test', 'dev'],
+  pnpm: ['start', 'run', 'install', 'build', 'test', 'dev'],
+  node: true,
+  bun: ['start', 'run', 'install', 'build', 'test', 'dev'],
+} as const;
+
+export function validateCommand(command: string): CommandValidationResult {
+  // Check for dangerous characters: ; & | ` $ ( ) < > \ " '
+  const dangerousChars = /[;&|`$()<>\\'"]/;
+  if (dangerousChars.test(command)) {
+    return { valid: false, error: 'Dangerous characters detected' };
+  }
+
+  const [executable, ...args] = command.split(/\s+/);
+
+  // Validate executable is in whitelist
+  if (!AllowedCommands[executable]) {
+    return { valid: false, error: `Executable '${executable}' not allowed` };
+  }
+
+  // Validate subcommands
+  // ...
+
+  return { valid: true, sanitizedCommand: [executable, ...args] };
+}
+```
+
+**Key Points**:
+- Whitelist > Blacklist (easier to secure)
+- Block dangerous characters entirely
+- Return sanitized command array for spawn()
+- Use `shell: false` when spawning processes
+
+### 3. Path Traversal Protection
+
+**Why**: User-provided paths can escape intended directories.
+
+**Implementation**:
+```typescript
+export function validatePath(
+  basePath: string,
+  targetPath: string,
+  pathDescription: string = 'path'
+): PathValidationResult {
+  // Check for null bytes
+  if (targetPath.includes('\0')) {
+    return { valid: false, error: 'Null bytes detected' };
+  }
+
+  // Construct and resolve full path
+  const fullPath = path.join(basePath, targetPath);
+  const resolvedPath = path.resolve(fullPath);
+  const resolvedBase = path.resolve(basePath);
+
+  // Ensure resolved path is within base directory
+  if (!resolvedPath.startsWith(resolvedBase + path.sep) &&
+      resolvedPath !== resolvedBase) {
+    return { valid: false, error: 'Path traversal detected' };
+  }
+
+  return { valid: true, sanitizedPath: resolvedPath };
+}
+```
+
+**Key Points**:
+- Use `path.resolve()` to handle `..` and symlinks
+- Check resolved path still within base directory
+- Block null bytes (can bypass some filters)
+- Validate app IDs separately (no path separators)
+
+### 4. Error Sanitization
+
+**Why**: Raw error messages leak sensitive system information.
+
+**Implementation**:
+```typescript
+const SENSITIVE_PATTERNS = [
+  /\/Users\/[^/\s]+/g,           // macOS user paths
+  /\/home\/[^/\s]+/g,            // Linux user paths
+  /C:\\Users\\[^\\s]+/g,         // Windows user paths
+  /process\.env\.[A-Z_]+/g,     // Environment variables
+  /\s+at\s+.+\(.+:\d+:\d+\)/g,  // Stack traces
+];
+
+export function sanitizeErrorMessage(message: string): string {
+  let sanitized = message;
+  for (const pattern of SENSITIVE_PATTERNS) {
+    sanitized = sanitized.replace(pattern, '[REDACTED]');
+  }
+  return sanitized;
+}
+
+export function logAndSanitizeError(
+  logger: any,
+  context: string,
+  error: unknown
+): string {
+  // Log full error server-side for debugging
+  logger.error(context, { error });
+
+  // Return sanitized message for client
+  return getErrorMessage(error);
+}
+```
+
+**Key Points**:
+- Log full errors server-side only
+- Remove paths, env vars, stack traces from client errors
+- Generic fallback message for unknown errors
+- Maintain debugging capability without exposing details
+
+## Summary of Resolutions
+
+| Issue | Status | Solution |
+|-------|--------|----------|
+| IPC Registration | ✅ RESOLVED | Use `ipcMain.handle()` not LocalMain |
+| React Hooks | ✅ RESOLVED | Convert to class components |
+| Command Injection | ✅ RESOLVED | Whitelist validation + shell: false |
+| Path Traversal | ✅ RESOLVED | path.resolve() + boundary checks |
+| Input Validation | ✅ RESOLVED | Zod schemas on all IPC |
+| Error Leakage | ✅ RESOLVED | Sanitization before client return |
 
 ## Testing Strategy
 
@@ -212,7 +380,25 @@ ls -la lib/
 
 ## Resources
 
+### Debugging
 - Local logs: `~/Library/Logs/Local/local-lightning.log`
 - DevTools: View → Toggle Developer Tools
 - Addon location: `~/Library/Application Support/Local/addons/`
 - Documentation: `/local-addon-documentation/docs/`
+
+### Security References
+- OWASP Top 10: https://owasp.org/www-project-top-ten/
+- Command Injection: https://owasp.org/www-community/attacks/Command_Injection
+- Path Traversal: https://owasp.org/www-community/attacks/Path_Traversal
+- Zod Documentation: https://zod.dev/
+
+### Code Examples
+- `src/security/validation.ts` - Command and path validation
+- `src/security/schemas.ts` - Zod input validation
+- `src/security/errors.ts` - Error sanitization
+- `src/main-full.ts` - Complete IPC handler pattern
+
+---
+
+**Last Updated**: November 21, 2025
+**Status**: All critical issues resolved, security hardened, ready for Phase 2

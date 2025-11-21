@@ -24,25 +24,72 @@ Manage Node.js applications alongside your WordPress sites in Local. Start, stop
 
 ## Architecture
 
+### Security-First Design
+
+This addon implements a **4-layer security architecture** to protect against common vulnerabilities:
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Renderer Process (UI)                    │
+│                  ↓ IPC Request (untrusted)                  │
+└─────────────────────────────────────────────────────────────┘
+                              ↓
+         ┌────────────────────────────────────────┐
+         │  Layer 1: Input Validation (Zod)      │
+         │  • Type checking                       │
+         │  • Format validation                   │
+         │  • Schema enforcement                  │
+         └────────────────────────────────────────┘
+                              ↓
+         ┌────────────────────────────────────────┐
+         │  Layer 2: Command Validation           │
+         │  • Whitelist checking                  │
+         │  • Dangerous character blocking        │
+         │  • Argument sanitization               │
+         └────────────────────────────────────────┘
+                              ↓
+         ┌────────────────────────────────────────┐
+         │  Layer 3: Path Validation              │
+         │  • Path traversal prevention           │
+         │  • Null byte detection                 │
+         │  • Boundary enforcement                │
+         └────────────────────────────────────────┘
+                              ↓
+         ┌────────────────────────────────────────┐
+         │  Layer 4: Error Sanitization           │
+         │  • Information leak prevention         │
+         │  • Sensitive data removal              │
+         │  • Safe client responses               │
+         └────────────────────────────────────────┘
+```
+
 ### Components
 
-1. **Main Process**
+1. **Main Process** (src/main-full.ts)
+   - IPC handler registration with validation
    - Git repository management
    - Process lifecycle control
    - Environment configuration
    - Port allocation
 
-2. **Lightning Service**
-   - Node.js process management
+2. **Lightning Service** (src/services/NodeOrchestratorService.ts)
+   - Secure Node.js process spawning
    - Health monitoring
    - Log streaming
    - Restart on failure
+   - Resource management
 
-3. **Renderer UI**
+3. **Renderer UI** (src/components/)
    - App configuration interface
    - Log viewer
    - Status monitoring
    - Environment variable editor
+
+4. **Security Layer** (src/security/)
+   - Input validation (schemas.ts)
+   - Command validation (validation.ts)
+   - Path validation (validation.ts)
+   - Error sanitization (errors.ts)
 
 ### Data Structure
 
@@ -148,15 +195,62 @@ Each app can override defaults through:
 
 ### IPC Channels
 
-#### Main Process
+All IPC handlers follow this secure pattern:
 
-- `node-orchestrator:add-app` - Add new Node.js app
-- `node-orchestrator:remove-app` - Remove app
-- `node-orchestrator:start-app` - Start specific app
-- `node-orchestrator:stop-app` - Stop specific app
-- `node-orchestrator:get-apps` - Get all apps for site
-- `node-orchestrator:get-logs` - Get app logs
-- `node-orchestrator:update-env` - Update environment variables
+```typescript
+ipcMain.handle('node-orchestrator:action', async (_event, request: unknown) => {
+  try {
+    // 1. Validate input
+    const validation = validate(RequestSchema, request);
+    if (!validation.success) {
+      return { success: false, error: validation.error };
+    }
+
+    // 2. Log with context
+    localLogger.info('Action starting', { siteId, appId });
+
+    // 3. Execute with validated data
+    const result = await performAction(validation.data);
+
+    // 4. Return success
+    return { success: true, ...result };
+  } catch (error: unknown) {
+    // 5. Sanitize error
+    const sanitizedError = logAndSanitizeError(localLogger, 'Action failed', error);
+    return { success: false, error: sanitizedError };
+  }
+});
+```
+
+#### Available Channels
+
+- **`node-orchestrator:add-app`** - Add new Node.js app
+  - Request: `{ siteId: string, app: NodeAppConfig }`
+  - Response: `{ success: boolean, app?: NodeApp, error?: string }`
+
+- **`node-orchestrator:remove-app`** - Remove app
+  - Request: `{ siteId: string, appId: string }`
+  - Response: `{ success: boolean, error?: string }`
+
+- **`node-orchestrator:start-app`** - Start specific app
+  - Request: `{ siteId: string, appId: string }`
+  - Response: `{ success: boolean, app?: NodeApp, error?: string }`
+
+- **`node-orchestrator:stop-app`** - Stop specific app
+  - Request: `{ siteId: string, appId: string }`
+  - Response: `{ success: boolean, app?: NodeApp, error?: string }`
+
+- **`node-orchestrator:get-apps`** - Get all apps for site
+  - Request: `{ siteId: string }`
+  - Response: `{ success: boolean, apps?: NodeApp[], error?: string }`
+
+- **`node-orchestrator:get-logs`** - Get app logs
+  - Request: `{ siteId: string, appId: string, lines?: number }`
+  - Response: `{ success: boolean, logs?: string[], error?: string }`
+
+- **`node-orchestrator:update-env`** - Update environment variables
+  - Request: `{ siteId: string, appId: string, env: Record<string, string> }`
+  - Response: `{ success: boolean, error?: string }`
 
 ### Hooks
 
@@ -165,6 +259,139 @@ Each app can override defaults through:
 - `nodeAppStopping` - Before app stops
 - `nodeAppStopped` - After app stops
 - `nodeAppError` - On app error
+
+## Security
+
+### Input Validation
+
+All IPC requests are validated using Zod schemas:
+
+```typescript
+// Request validation
+const AddAppRequestSchema = z.object({
+  siteId: z.string().uuid(),
+  app: z.object({
+    name: z.string().min(1).max(100).regex(/^[a-z0-9-]+$/),
+    gitUrl: z.string().url(),
+    branch: z.string().min(1).max(100),
+    installCommand: z.string().min(1).max(500),
+    startCommand: z.string().min(1).max(500),
+    nodeVersion: z.enum(['18.x', '20.x', '21.x', '22.x']),
+    autoStart: z.boolean(),
+    env: z.record(z.string(), z.string())
+  })
+});
+```
+
+### Command Validation
+
+Only whitelisted commands and subcommands are allowed:
+
+```typescript
+// Allowed commands
+AllowedCommands = {
+  npm: ['start', 'run', 'install', 'build', 'test', 'dev', 'ci'],
+  yarn: ['start', 'run', 'install', 'build', 'test', 'dev'],
+  pnpm: ['start', 'run', 'install', 'build', 'test', 'dev'],
+  node: true, // With script path validation
+  bun: ['start', 'run', 'install', 'build', 'test', 'dev']
+};
+
+// Blocked dangerous characters: ; & | ` $ ( ) < > \ " '
+```
+
+### Path Traversal Prevention
+
+All file paths are validated to prevent directory traversal:
+
+```typescript
+// Validate app paths
+const pathValidation = validateAppPath(baseDirectory, appId);
+if (!pathValidation.valid) {
+  throw new Error('Invalid path');
+}
+
+// Use sanitized path
+const safePath = pathValidation.sanitizedPath;
+```
+
+### Error Sanitization
+
+Errors are sanitized before being sent to the renderer:
+
+```typescript
+// Server-side: Full error logged
+logger.error('Operation failed', { error: error.stack });
+
+// Client-side: Sanitized message
+return { success: false, error: 'An error occurred' };
+// Sensitive paths, env vars, and stack traces removed
+```
+
+### Secure Process Spawning
+
+Processes are spawned with security best practices:
+
+```typescript
+const child = spawn(command, args, {
+  cwd: validatedPath,
+  env: sanitizedEnv,
+  shell: false,        // Prevents shell injection
+  detached: false
+});
+```
+
+### Security Best Practices
+
+1. **Never trust renderer input** - Always validate with Zod
+2. **Use command whitelists** - Never allow arbitrary commands
+3. **Validate all paths** - Prevent traversal attacks
+4. **Sanitize errors** - Don't leak system information
+5. **Use shell: false** - Prevent shell injection in spawn()
+6. **Log full errors server-side** - Keep detailed logs for debugging
+7. **Type request as unknown** - Force explicit validation
+
+## Troubleshooting
+
+### IPC Handler Not Found
+
+**Problem**: "No handler registered for 'node-orchestrator:xxx'"
+
+**Solution**: Ensure you're using `ipcMain.handle()` from 'electron':
+```typescript
+import { ipcMain } from 'electron';
+ipcMain.handle('node-orchestrator:test', async (_event, request: unknown) => {
+  // Handler code
+});
+```
+
+### React Invalid Hook Call
+
+**Problem**: "Invalid hook call" error in UI
+
+**Solution**: Use class components instead of functional components with hooks:
+```typescript
+class MyComponent extends React.Component {
+  state = { value: '' };
+  render() { /* ... */ }
+}
+```
+
+### Command Validation Failed
+
+**Problem**: "Command contains dangerous characters" or "Executable not allowed"
+
+**Solution**: Only use whitelisted commands:
+- ✅ `npm start`, `yarn dev`, `node server.js`
+- ❌ `npm start && rm -rf /`, `sh -c "command"`
+
+### Path Validation Failed
+
+**Problem**: "Path traversal detected" or "Invalid app path"
+
+**Solution**: App IDs must be simple identifiers without path separators:
+- ✅ `my-api-server`, `frontend-app`
+- ❌ `../../../etc/passwd`, `/absolute/path`
 
 ## Requirements
 
