@@ -55,6 +55,42 @@ const branchSchema = z
   .regex(/^[a-zA-Z0-9/_.-]+$/, 'Branch name contains invalid characters');
 
 /**
+ * Subdirectory validation - SECURITY CRITICAL
+ * Multi-layer protection against path traversal attacks
+ */
+const subdirectorySchema = z
+  .string()
+  .max(500, 'Subdirectory path too long')
+  .regex(/^[a-zA-Z0-9/_.-]+$/, 'Invalid characters in subdirectory path')
+  .refine(
+    (path) => {
+      // Block path traversal patterns
+      if (path.includes('..')) {
+        return false;
+      }
+      // Block absolute paths
+      if (path.startsWith('/')) {
+        return false;
+      }
+      // Block hidden directories at the start
+      if (path.startsWith('.')) {
+        return false;
+      }
+      // Block backslashes (Windows path separators)
+      if (path.includes('\\')) {
+        return false;
+      }
+      // Block null bytes
+      if (path.includes('\0')) {
+        return false;
+      }
+      return true;
+    },
+    'Path traversal or invalid path detected'
+  )
+  .optional();
+
+/**
  * Command validation - checks for basic structure
  * More detailed validation is done by validateCommand()
  */
@@ -97,11 +133,13 @@ export const AddAppRequestSchema = z.object({
     name: appNameSchema,
     gitUrl: gitUrlSchema,
     branch: branchSchema,
+    subdirectory: subdirectorySchema,
     installCommand: autoDetectCommandSchema,
     buildCommand: optionalCommandSchema,
     startCommand: commandSchema,
     nodeVersion: nodeVersionSchema,
     autoStart: z.boolean(),
+    injectWpEnv: z.boolean().optional().default(true), // Default to true - auto-inject WP env vars
     env: envSchema.optional().default({})
   })
 });
@@ -170,11 +208,96 @@ export const UpdateAppRequestSchema = z.object({
     startCommand: commandSchema.optional(),
     nodeVersion: nodeVersionSchema.optional(),
     autoStart: z.boolean().optional(),
+    injectWpEnv: z.boolean().optional(),
     env: envSchema.optional()
   }).refine(
     (data) => Object.keys(data).length > 0,
     'At least one field must be updated'
   )
+});
+
+/**
+ * Plugin ID validation - We generate these as UUIDs
+ */
+const pluginIdSchema = z.string().uuid('Invalid plugin ID format');
+
+/**
+ * Plugin name validation
+ */
+const pluginNameSchema = z
+  .string()
+  .min(1, 'Plugin name is required')
+  .max(200, 'Plugin name must be less than 200 characters');
+
+/**
+ * Plugin slug validation - SECURITY CRITICAL
+ * WordPress plugin slugs must be lowercase alphanumeric with hyphens and underscores only
+ */
+const pluginSlugSchema = z
+  .string()
+  .min(1, 'Plugin slug is required')
+  .max(200, 'Plugin slug must be less than 200 characters')
+  .regex(/^[a-z0-9_-]+$/, 'Plugin slug must contain only lowercase letters, numbers, hyphens, and underscores')
+  .refine(
+    (slug) => {
+      // Block shell metacharacters
+      const shellMetaChars = /[;&|`$()<>\\'"]/;
+      if (shellMetaChars.test(slug)) {
+        return false;
+      }
+      // Block path traversal patterns
+      if (slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
+        return false;
+      }
+      return true;
+    },
+    'Plugin slug contains invalid or dangerous characters'
+  );
+
+/**
+ * Schema for installing a WordPress plugin
+ */
+export const InstallPluginRequestSchema = z.object({
+  siteId: siteIdSchema,
+  plugin: z.object({
+    name: pluginNameSchema,
+    gitUrl: gitUrlSchema,
+    branch: branchSchema,
+    subdirectory: subdirectorySchema,
+    slug: pluginSlugSchema,
+    autoActivate: z.boolean().optional().default(false)
+  })
+});
+
+/**
+ * Schema for activating a plugin
+ */
+export const ActivatePluginRequestSchema = z.object({
+  siteId: siteIdSchema,
+  pluginId: pluginIdSchema
+});
+
+/**
+ * Schema for deactivating a plugin
+ */
+export const DeactivatePluginRequestSchema = z.object({
+  siteId: siteIdSchema,
+  pluginId: pluginIdSchema
+});
+
+/**
+ * Schema for removing a plugin
+ */
+export const RemovePluginRequestSchema = z.object({
+  siteId: siteIdSchema,
+  pluginId: pluginIdSchema
+});
+
+/**
+ * Schema for getting plugins
+ */
+export const GetPluginsRequestSchema = z.object({
+  siteId: siteIdSchema
 });
 
 /**

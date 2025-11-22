@@ -14,6 +14,7 @@ import { GitManager, GitProgressEvent } from './GitManager';
 import { ConfigManager } from './ConfigManager';
 import { PortManager } from './PortManager';
 import { NpmManager } from './NpmManager';
+import { WordPressEnvManager } from './wordpress/WordPressEnvManager';
 import { validateInstallCommand, validateStartCommand, validateBuildCommand } from '../security/validation';
 
 export interface InstallProgress {
@@ -132,6 +133,7 @@ export class NodeAppManager {
         name: appConfig.name,
         gitUrl: appConfig.gitUrl,
         branch: appConfig.branch || 'main',
+        subdirectory: appConfig.subdirectory,
         installCommand: appConfig.installCommand || `${packageManager} install`,
         buildCommand: appConfig.buildCommand || '',
         startCommand: appConfig.startCommand || 'npm start',
@@ -139,6 +141,7 @@ export class NodeAppManager {
         env: appConfig.env || {},
         status: 'stopped',
         autoStart: appConfig.autoStart ?? false,
+        injectWpEnv: appConfig.injectWpEnv ?? true, // Default to true - auto-inject WP env vars
         path: appPath,
         port,
         createdAt: new Date(),
@@ -305,14 +308,47 @@ export class NodeAppManager {
       }
 
       // Build environment variables
-      const env = {
+      let env: Record<string, string> = {
         ...process.env,
-        ...app.env,
         PORT: app.port?.toString() || '3000',
         NODE_ENV: 'development',
         // Enable Node.js mode in Electron (required for process.execPath)
         ELECTRON_RUN_AS_NODE: '1'
       };
+
+      // Inject WordPress environment variables if enabled
+      if (app.injectWpEnv) {
+        try {
+          const wpEnv = WordPressEnvManager.extractWordPressEnv(site);
+
+          // Log successful extraction (sanitized)
+          const sanitizedWpEnv = WordPressEnvManager.sanitizeForLogging(wpEnv);
+          console.log(`[NodeAppManager] Injecting WordPress environment variables for ${app.name}:`, sanitizedWpEnv);
+
+          // Merge WordPress env vars with app env
+          env = {
+            ...env,
+            ...wpEnv,
+            ...app.env // App-specific env vars take precedence
+          };
+        } catch (error: any) {
+          // Log warning but continue - app can still run without WP env vars
+          console.warn(`[NodeAppManager] Failed to extract WordPress environment for ${app.name}:`, error.message);
+          console.warn(`[NodeAppManager] App will start without WordPress environment variables`);
+
+          // Still merge app-specific env vars
+          env = {
+            ...env,
+            ...app.env
+          };
+        }
+      } else {
+        // WordPress env injection disabled - just use app env
+        env = {
+          ...env,
+          ...app.env
+        };
+      }
 
       // Create logs directory in site's logs folder (proper location)
       // Ensure sitePath is absolute (expand ~ if present)

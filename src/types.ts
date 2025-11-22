@@ -5,6 +5,7 @@ export interface NodeApp {
   branch: string;
   path?: string;                // Where it's cloned (alias for localPath)
   localPath?: string;           // Where it's cloned (deprecated, use path)
+  subdirectory?: string;        // Optional subdirectory within repo (for monorepos)
   installCommand: string;       // npm install, yarn, pnpm install
   buildCommand?: string;        // npm run build
   startCommand: string;         // npm start, node index.js
@@ -13,6 +14,7 @@ export interface NodeApp {
   env: Record<string, string>;
   status: NodeAppStatus;
   autoStart: boolean;
+  injectWpEnv: boolean;         // Auto-inject WordPress environment variables
   lastError?: string;
   pid?: number;
   startedAt?: Date;
@@ -153,4 +155,83 @@ export interface NodeAppLogEvent {
   type: 'stdout' | 'stderr';
   data: string;
   timestamp: Date;
+}
+
+// WordPress Integration
+export interface WordPressEnv {
+  WP_DB_HOST: string;
+  WP_DB_NAME: string;
+  WP_DB_USER: string;
+  WP_DB_PASSWORD: string;
+  WP_SITE_URL: string;
+  WP_HOME_URL: string;
+  WP_ADMIN_URL: string;
+  WP_CONTENT_DIR: string;
+  WP_UPLOADS_DIR: string;
+  DATABASE_URL?: string;
+}
+
+// WordPress Plugin Types
+export interface WordPressPlugin {
+  id: string;
+  name: string;
+  gitUrl: string;
+  branch: string;
+  subdirectory?: string;  // For monorepo plugins
+  slug: string;           // Directory name in wp-content/plugins
+  status: 'installing' | 'installed' | 'active' | 'inactive' | 'error';
+  installedPath: string;
+  version?: string;
+  error?: string;
+  createdAt: Date;
+  updatedAt?: Date;
+}
+
+export interface SiteWordPressPlugins {
+  siteId: string;
+  plugins: WordPressPlugin[];
+}
+
+// WordPress Plugin IPC Types
+export interface InstallPluginRequest {
+  siteId: string;
+  plugin: {
+    name: string;
+    gitUrl: string;
+    branch: string;
+    subdirectory?: string;
+    slug: string;
+    autoActivate?: boolean;
+  };
+}
+
+export interface InstallPluginResponse {
+  success: boolean;
+  plugin?: WordPressPlugin;
+  error?: string;
+}
+
+export interface ActivatePluginRequest {
+  siteId: string;
+  pluginId: string;
+}
+
+export interface DeactivatePluginRequest {
+  siteId: string;
+  pluginId: string;
+}
+
+export interface RemovePluginRequest {
+  siteId: string;
+  pluginId: string;
+}
+
+export interface GetPluginsRequest {
+  siteId: string;
+}
+
+export interface GetPluginsResponse {
+  success: boolean;
+  plugins?: WordPressPlugin[];
+  error?: string;
 }

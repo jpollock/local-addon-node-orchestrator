@@ -21,7 +21,8 @@ Manage Node.js applications alongside your WordPress sites in Local. Start, stop
 - 📊 **Process Monitoring** - View logs, status, and resource usage
 - 🌐 **Port Management** - Automatic port allocation and conflict resolution
 - 🏃 **Multiple Runtimes** - Support for different Node.js versions per app
-- 🔗 **WordPress Integration** - Access Node.js app URLs from WordPress
+- 🔗 **WordPress Integration** - Auto-inject WordPress DB credentials and URLs
+- 📂 **Monorepo Support** - Run apps from subdirectories within a repository
 
 ## Use Cases
 
@@ -159,6 +160,105 @@ interface SiteNodeApps {
    - Click "Environment" button
    - Add/edit variables
    - Changes require app restart
+
+## 🔗 WordPress Integration (NEW!)
+
+**This is the #1 distinguishing feature of this addon!** Seamlessly connect your Node.js apps to WordPress.
+
+### Automatic WordPress Environment Variables
+
+When you add a Node.js app, it automatically receives WordPress database credentials and configuration as environment variables:
+
+```javascript
+// In your Node.js app, these are automatically available:
+process.env.WP_DB_HOST          // localhost:10006
+process.env.WP_DB_NAME          // local
+process.env.WP_DB_USER          // root
+process.env.WP_DB_PASSWORD      // root
+process.env.WP_SITE_URL         // http://mysite.local
+process.env.WP_HOME_URL         // http://mysite.local
+process.env.WP_ADMIN_URL        // http://mysite.local/wp-admin
+process.env.WP_CONTENT_DIR      // /path/to/wp-content
+process.env.WP_UPLOADS_DIR      // /path/to/wp-content/uploads
+process.env.DATABASE_URL        // mysql://root:root@localhost:10006/local
+```
+
+### Example: Connect to WordPress Database
+
+```javascript
+// Express.js API that queries WordPress database
+const mysql = require('mysql2/promise');
+
+const pool = mysql.createPool({
+  host: process.env.WP_DB_HOST.split(':')[0],
+  port: process.env.WP_DB_HOST.split(':')[1] || 3306,
+  user: process.env.WP_DB_USER,
+  password: process.env.WP_DB_PASSWORD,
+  database: process.env.WP_DB_NAME,
+  waitForConnections: true,
+  connectionLimit: 10
+});
+
+app.get('/api/posts', async (req, res) => {
+  const [rows] = await pool.query(
+    'SELECT * FROM wp_posts WHERE post_status = ? ORDER BY post_date DESC LIMIT 10',
+    ['publish']
+  );
+  res.json(rows);
+});
+```
+
+### Example: Next.js with WordPress Backend
+
+```javascript
+// lib/wordpress.js
+export async function getWordPressPosts() {
+  const response = await fetch(`${process.env.WP_SITE_URL}/wp-json/wp/v2/posts`);
+  return response.json();
+}
+
+// Also available: Direct database access via DATABASE_URL
+import { PrismaClient } from '@prisma/client';
+
+const prisma = new PrismaClient({
+  datasources: {
+    db: {
+      url: process.env.DATABASE_URL
+    }
+  }
+});
+```
+
+### Toggle WordPress Integration
+
+WordPress environment variables are injected by default, but you can disable it per-app:
+
+```json
+{
+  "injectWpEnv": false
+}
+```
+
+This is useful if:
+- Your app doesn't need WordPress integration
+- You want to manually configure database credentials
+- You're connecting to a different WordPress site
+
+### Security
+
+**CRITICAL**: Database credentials are sensitive!
+
+✅ **What we do**:
+- Never log passwords in plain text
+- Sanitize all error messages
+- Use secure environment variable injection
+- Follow principle of least privilege
+
+❌ **What you should NOT do**:
+- Don't expose credentials in client-side code
+- Don't commit `.env` files with credentials
+- Don't log `process.env` in production
+- Don't share DATABASE_URL publicly
 
 ## Development
 

@@ -5,6 +5,8 @@ import { GitManager } from './lib/GitManager';
 import { NodeAppManager } from './lib/NodeAppManager';
 import { ConfigManager } from './lib/ConfigManager';
 import { PortManager } from './lib/PortManager';
+import { WpCliManager } from './lib/wordpress/WpCliManager';
+import { WordPressPluginManager } from './lib/wordpress/WordPressPluginManager';
 import {
   AddAppRequestSchema,
   StartAppRequestSchema,
@@ -14,6 +16,11 @@ import {
   GetLogsRequestSchema,
   UpdateEnvRequestSchema,
   UpdateAppRequestSchema,
+  InstallPluginRequestSchema,
+  ActivatePluginRequestSchema,
+  DeactivatePluginRequestSchema,
+  RemovePluginRequestSchema,
+  GetPluginsRequestSchema,
   validate
 } from './security/schemas';
 import { logAndSanitizeError } from './security/errors';
@@ -29,6 +36,8 @@ export default function (context: LocalMain.AddonMainContext): void {
   const gitManager = new GitManager();
   const portManager = new PortManager();
   const appManager = new NodeAppManager(configManager, gitManager, portManager);
+  const wpCliManager = new WpCliManager();
+  const pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
 
   console.log('[Node Orchestrator] Managers initialized');
 
@@ -488,6 +497,271 @@ export default function (context: LocalMain.AddonMainContext): void {
     }
   });
 
+  // ========================================
+  // WordPress Plugin IPC Handlers
+  // ========================================
+
+  ipcMain.handle('node-orchestrator:install-plugin', async (_event, request: unknown) => {
+    try {
+      // Validate input
+      const validation = validate(InstallPluginRequestSchema, request);
+      if (!validation.success) {
+        localLogger.warn('Invalid install-plugin request', { validationError: validation.error });
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for install-plugin request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
+      localLogger.info('Installing WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginName: validatedRequest.plugin.name,
+        gitUrl: validatedRequest.plugin.gitUrl
+      });
+
+      const plugin = await pluginManager.installPlugin(
+        site,
+        validatedRequest.plugin,
+        (progress) => {
+          localLogger.info('Plugin installation progress', {
+            phase: progress.phase,
+            progress: progress.progress,
+            message: progress.message
+          });
+        }
+      );
+
+      // Save plugin configuration
+      await configManager.savePlugin(validatedRequest.siteId, site.path, plugin);
+
+      localLogger.info('Successfully installed WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginId: plugin.id,
+        pluginSlug: plugin.slug
+      });
+
+      return {
+        success: true,
+        plugin
+      };
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to install WordPress plugin', error);
+      return {
+        success: false,
+        error: sanitizedError
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:activate-plugin', async (_event, request: unknown) => {
+    try {
+      // Validate input
+      const validation = validate(ActivatePluginRequestSchema, request);
+      if (!validation.success) {
+        localLogger.warn('Invalid activate-plugin request', { validationError: validation.error });
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for activate-plugin request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
+      // Get plugin from config
+      const plugin = await configManager.getPlugin(validatedRequest.siteId, site.path, validatedRequest.pluginId);
+      if (!plugin) {
+        throw new Error('Plugin not found in configuration');
+      }
+
+      localLogger.info('Activating WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginId: validatedRequest.pluginId,
+        pluginSlug: plugin.slug
+      });
+
+      const result = await pluginManager.activatePlugin(site, plugin.slug);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to activate plugin');
+      }
+
+      // Update plugin status
+      await configManager.updatePluginStatus(validatedRequest.siteId, site.path, validatedRequest.pluginId, 'active');
+
+      localLogger.info('Successfully activated WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginId: validatedRequest.pluginId
+      });
+
+      return {
+        success: true
+      };
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to activate WordPress plugin', error);
+      return {
+        success: false,
+        error: sanitizedError
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:deactivate-plugin', async (_event, request: unknown) => {
+    try {
+      // Validate input
+      const validation = validate(DeactivatePluginRequestSchema, request);
+      if (!validation.success) {
+        localLogger.warn('Invalid deactivate-plugin request', { validationError: validation.error });
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for deactivate-plugin request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
+      // Get plugin from config
+      const plugin = await configManager.getPlugin(validatedRequest.siteId, site.path, validatedRequest.pluginId);
+      if (!plugin) {
+        throw new Error('Plugin not found in configuration');
+      }
+
+      localLogger.info('Deactivating WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginId: validatedRequest.pluginId,
+        pluginSlug: plugin.slug
+      });
+
+      const result = await pluginManager.deactivatePlugin(site, plugin.slug);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to deactivate plugin');
+      }
+
+      // Update plugin status
+      await configManager.updatePluginStatus(validatedRequest.siteId, site.path, validatedRequest.pluginId, 'inactive');
+
+      localLogger.info('Successfully deactivated WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginId: validatedRequest.pluginId
+      });
+
+      return {
+        success: true
+      };
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to deactivate WordPress plugin', error);
+      return {
+        success: false,
+        error: sanitizedError
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:remove-plugin', async (_event, request: unknown) => {
+    try {
+      // Validate input
+      const validation = validate(RemovePluginRequestSchema, request);
+      if (!validation.success) {
+        localLogger.warn('Invalid remove-plugin request', { validationError: validation.error });
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for remove-plugin request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
+      // Get plugin from config
+      const plugin = await configManager.getPlugin(validatedRequest.siteId, site.path, validatedRequest.pluginId);
+      if (!plugin) {
+        throw new Error('Plugin not found in configuration');
+      }
+
+      localLogger.info('Removing WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginId: validatedRequest.pluginId,
+        pluginSlug: plugin.slug
+      });
+
+      const result = await pluginManager.removePlugin(site, plugin.slug);
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to remove plugin');
+      }
+
+      // Remove plugin from config
+      await configManager.removePlugin(validatedRequest.siteId, site.path, validatedRequest.pluginId);
+
+      localLogger.info('Successfully removed WordPress plugin', {
+        siteId: validatedRequest.siteId,
+        pluginId: validatedRequest.pluginId
+      });
+
+      return {
+        success: true
+      };
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to remove WordPress plugin', error);
+      return {
+        success: false,
+        error: sanitizedError
+      };
+    }
+  });
+
+  ipcMain.handle('node-orchestrator:get-plugins', async (_event, request: unknown) => {
+    try {
+      // Validate input
+      const validation = validate(GetPluginsRequestSchema, request);
+      if (!validation.success) {
+        localLogger.warn('Invalid get-plugins request', { validationError: validation.error });
+        return {
+          success: false,
+          error: `Invalid request: ${validation.error}`
+        };
+      }
+
+      const validatedRequest = validation.data;
+      const site = siteData.getSite(validatedRequest.siteId);
+      if (!site) {
+        localLogger.warn('Site not found for get-plugins request', { siteId: validatedRequest.siteId });
+        throw new Error(`Site not found`);
+      }
+
+      const plugins = await configManager.loadPlugins(validatedRequest.siteId, site.path);
+
+      return {
+        success: true,
+        plugins
+      };
+    } catch (error: unknown) {
+      const sanitizedError = logAndSanitizeError(localLogger, 'Failed to get WordPress plugins', error);
+      return {
+        success: false,
+        error: sanitizedError
+      };
+    }
+  });
+
   // Environment variable filter for WordPress integration
   context.hooks.addFilter(
     'siteShellEnvironment',
@@ -508,5 +782,5 @@ export default function (context: LocalMain.AddonMainContext): void {
   );
 
   // Log initialization
-  localLogger.log('info', 'Node.js Orchestrator addon loaded');
+  localLogger.log('info', 'Node.js Orchestrator addon loaded with WordPress Plugin Management');
 }

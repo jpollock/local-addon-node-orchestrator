@@ -11,6 +11,7 @@ export interface GitCloneOptions {
   url: string;
   branch: string;
   targetPath: string;
+  subdirectory?: string;
   onProgress?: (event: GitProgressEvent) => void;
 }
 
@@ -96,15 +97,64 @@ export class GitManager {
         ]
       );
 
-      // Verify package.json exists
-      const packageJsonPath = path.join(targetPath, 'package.json');
+      // If subdirectory is specified, verify it exists and is safe
+      let workingPath = targetPath;
+      if (options.subdirectory) {
+        // Construct subdirectory path
+        const subdirPath = path.join(targetPath, options.subdirectory);
+
+        // SECURITY: Verify subdirectory is within cloned repo (prevent traversal)
+        const resolvedSubdir = path.resolve(subdirPath);
+        const resolvedTarget = path.resolve(targetPath);
+        if (!resolvedSubdir.startsWith(resolvedTarget)) {
+          // Clean up the cloned directory
+          await fs.remove(targetPath);
+          return {
+            success: false,
+            path: '',
+            error: 'Path traversal detected in subdirectory path'
+          };
+        }
+
+        // Verify subdirectory exists
+        if (!await fs.pathExists(subdirPath)) {
+          // Clean up the cloned directory
+          await fs.remove(targetPath);
+          return {
+            success: false,
+            path: '',
+            error: `Subdirectory not found: ${options.subdirectory}`
+          };
+        }
+
+        // Verify subdirectory is actually a directory
+        const stats = await fs.stat(subdirPath);
+        if (!stats.isDirectory()) {
+          // Clean up the cloned directory
+          await fs.remove(targetPath);
+          return {
+            success: false,
+            path: '',
+            error: `Subdirectory path is not a directory: ${options.subdirectory}`
+          };
+        }
+
+        // Use subdirectory as working path for package.json check
+        workingPath = subdirPath;
+      }
+
+      // Verify package.json exists in working path (either root or subdirectory)
+      const packageJsonPath = path.join(workingPath, 'package.json');
       if (!await fs.pathExists(packageJsonPath)) {
         // Clean up the cloned directory
         await fs.remove(targetPath);
+        const location = options.subdirectory
+          ? `subdirectory "${options.subdirectory}"`
+          : 'repository root';
         return {
           success: false,
           path: '',
-          error: 'Repository does not contain a package.json file'
+          error: `No package.json found in ${location}`
         };
       }
 

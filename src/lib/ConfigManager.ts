@@ -5,7 +5,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { NodeApp, SiteNodeApps } from '../types';
+import { NodeApp, SiteNodeApps, WordPressPlugin, SiteWordPressPlugins } from '../types';
 
 export interface ConfigManagerOptions {
   configPath?: string;
@@ -14,6 +14,7 @@ export interface ConfigManagerOptions {
 export class ConfigManager {
   private configPath: string;
   private configCache: Map<string, SiteNodeApps> = new Map();
+  private pluginCache: Map<string, SiteWordPressPlugins> = new Map();
 
   constructor(options: ConfigManagerOptions = {}) {
     // Default config path can be overridden for testing
@@ -32,6 +33,20 @@ export class ConfigManager {
     // Production path: within site directory
     const configDir = path.join(sitePath, 'conf', 'node-apps');
     return path.join(configDir, 'apps.json');
+  }
+
+  /**
+   * Get plugins configuration file path for a site
+   */
+  private getPluginsConfigFilePath(siteId: string, sitePath: string): string {
+    if (this.configPath) {
+      // Use override path (for testing)
+      return path.join(this.configPath, `${siteId}-plugins.json`);
+    }
+
+    // Production path: within site directory
+    const configDir = path.join(sitePath, 'conf', 'node-apps');
+    return path.join(configDir, 'plugins.json');
   }
 
   /**
@@ -193,6 +208,148 @@ export class ConfigManager {
       await this.saveApps(siteId, sitePath, config.apps);
     } catch (error: any) {
       throw new Error(`Failed to import config: ${error.message}`);
+    }
+  }
+
+  // ========================================
+  // WordPress Plugin Configuration Methods
+  // ========================================
+
+  /**
+   * Load plugins configuration for a site
+   */
+  async loadPlugins(siteId: string, sitePath: string): Promise<WordPressPlugin[]> {
+    try {
+      // Check cache first
+      const cached = this.pluginCache.get(siteId);
+      if (cached) {
+        return cached.plugins;
+      }
+
+      const configFile = this.getPluginsConfigFilePath(siteId, sitePath);
+
+      // Check if config file exists
+      if (!await fs.pathExists(configFile)) {
+        // No config yet, return empty array
+        return [];
+      }
+
+      // Read and parse config
+      const config = await fs.readJson(configFile);
+
+      // Validate structure
+      if (!config.siteId || !Array.isArray(config.plugins)) {
+        throw new Error('Invalid plugins config file structure');
+      }
+
+      // Cache the result
+      this.pluginCache.set(siteId, config);
+
+      return config.plugins;
+    } catch (error: any) {
+      // If file is corrupt or invalid, start fresh
+      console.error(`Failed to load plugins config for site ${siteId}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Save plugins configuration for a site
+   */
+  async savePlugins(siteId: string, sitePath: string, plugins: WordPressPlugin[]): Promise<void> {
+    try {
+      const configFile = this.getPluginsConfigFilePath(siteId, sitePath);
+
+      // Ensure config directory exists
+      const configDir = path.dirname(configFile);
+      await fs.ensureDir(configDir);
+
+      // Prepare config data
+      const config: SiteWordPressPlugins = {
+        siteId,
+        plugins
+      };
+
+      // Write to file with pretty formatting
+      await fs.writeJson(configFile, config, { spaces: 2 });
+
+      // Update cache
+      this.pluginCache.set(siteId, config);
+    } catch (error: any) {
+      throw new Error(`Failed to save plugins config for site ${siteId}: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get single plugin configuration
+   */
+  async getPlugin(siteId: string, sitePath: string, pluginId: string): Promise<WordPressPlugin | null> {
+    const plugins = await this.loadPlugins(siteId, sitePath);
+    return plugins.find(plugin => plugin.id === pluginId) || null;
+  }
+
+  /**
+   * Add or update a plugin configuration
+   */
+  async savePlugin(siteId: string, sitePath: string, plugin: WordPressPlugin): Promise<void> {
+    const plugins = await this.loadPlugins(siteId, sitePath);
+
+    // Find existing plugin index
+    const existingIndex = plugins.findIndex(p => p.id === plugin.id);
+
+    if (existingIndex >= 0) {
+      // Update existing plugin
+      plugins[existingIndex] = plugin;
+    } else {
+      // Add new plugin
+      plugins.push(plugin);
+    }
+
+    await this.savePlugins(siteId, sitePath, plugins);
+  }
+
+  /**
+   * Remove a plugin configuration
+   */
+  async removePlugin(siteId: string, sitePath: string, pluginId: string): Promise<void> {
+    const plugins = await this.loadPlugins(siteId, sitePath);
+
+    // Filter out the plugin to remove
+    const filteredPlugins = plugins.filter(plugin => plugin.id !== pluginId);
+
+    await this.savePlugins(siteId, sitePath, filteredPlugins);
+  }
+
+  /**
+   * Check if site has any plugins configured
+   */
+  async hasPlugins(siteId: string, sitePath: string): Promise<boolean> {
+    const plugins = await this.loadPlugins(siteId, sitePath);
+    return plugins.length > 0;
+  }
+
+  /**
+   * Find plugin by slug
+   */
+  async findPluginBySlug(siteId: string, sitePath: string, slug: string): Promise<WordPressPlugin | null> {
+    const plugins = await this.loadPlugins(siteId, sitePath);
+    return plugins.find(plugin => plugin.slug === slug) || null;
+  }
+
+  /**
+   * Update plugin status
+   */
+  async updatePluginStatus(
+    siteId: string,
+    sitePath: string,
+    pluginId: string,
+    status: WordPressPlugin['status']
+  ): Promise<void> {
+    const plugin = await this.getPlugin(siteId, sitePath, pluginId);
+    if (plugin) {
+      plugin.status = status;
+      plugin.updatedAt = new Date();
+      await this.savePlugin(siteId, sitePath, plugin);
     }
   }
 }
