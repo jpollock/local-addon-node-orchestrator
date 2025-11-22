@@ -2,6 +2,16 @@
 
 Manage Node.js applications alongside your WordPress sites in Local. Start, stop, and monitor Node.js apps from git repositories with your WordPress development.
 
+## 📚 Project Documentation
+
+**New to the project?** Start here:
+- **[INDEX.md](./INDEX.md)** - Complete documentation index (start here!)
+- **[QUICK_START_GUIDE.md](./QUICK_START_GUIDE.md)** - Developer quick reference
+- **[EXECUTION_PLAN.md](./EXECUTION_PLAN.md)** - v3.0 development plan
+- **[ROADMAP_VISUAL.md](./ROADMAP_VISUAL.md)** - Visual timeline and milestones
+
+**Current Status**: v2.0.0 ✅ | **Next Milestone**: v2.1.0-beta.1 (WordPress Integration)
+
 ## Features
 
 - 🚀 **Git Integration** - Clone and manage Node.js apps from any git repository
