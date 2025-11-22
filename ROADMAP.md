@@ -1,444 +1,776 @@
-# Node.js Orchestrator - Development Roadmap
+# Node.js Orchestrator - Parallel Development Roadmap
 
-## 🎯 Vision
-Enable Local users to run Node.js applications alongside WordPress sites, making it easy to develop decoupled architectures, API services, and full-stack applications.
+## 🎯 Vision & Distinguishing Features
 
-## ✅ Phase 1: Foundation (COMPLETED - November 2025)
+Enable Local users to seamlessly integrate Node.js applications with WordPress sites, making full-stack development effortless. Our **three key distinguishing features** set us apart:
 
-**Status**: 100% Complete
+1. **WordPress Environment Auto-Injection**: Automatically inject WordPress database credentials, site URLs, and other environment variables into Node.js apps
+2. **WordPress Plugin Management**: Install and activate WordPress plugins from Git repositories or monorepo subdirectories alongside Node.js apps
+3. **Monorepo Support**: Support both Node.js apps and WordPress plugins located in subdirectories of Git repositories
 
-- [x] Basic addon structure with TypeScript
-- [x] IPC communication between main/renderer using `ipcMain.handle()`
-- [x] UI component in Site Overview (React class components)
-- [x] Test suite with Jest
-- [x] Debug logging system
-- [x] All 8 IPC handlers working correctly
-- [x] Site lifecycle hooks (siteStarted, siteStopping, siteDeleting)
+## 📊 Current State (v2.0.0)
 
-## ✅ Phase 1.5: Security & Quality (COMPLETED - November 2025)
+### ✅ Completed Features
+- Git repository cloning with progress tracking
+- npm/yarn/pnpm dependency installation
+- **Hybrid npm support**: System npm first, bundled npm fallback (no Node.js installation required!)
+- Build command support
+- Process spawning and lifecycle management
+- Port allocation (3000-3999 range)
+- Config persistence (JSON files per site)
+- UI with React class components
+- Port management with clickable links
+- Edit app configuration
+- View logs (last 100 lines)
+- Environment variables editor
+- Auto-refresh UI every 2 seconds
+- Proper cleanup on site deletion
+- **4-layer security architecture**: Zod validation, command sanitization, path validation, error sanitization
 
-**Status**: 100% Complete - Production Ready
-
-### Security Implementation
-- [x] **Layer 1**: Zod input validation on all IPC handlers
-- [x] **Layer 2**: Whitelist-based command validation
-- [x] **Layer 3**: Path traversal protection
-- [x] **Layer 4**: Error message sanitization
-
-### Code Quality
-- [x] Fixed React hooks crashes (converted to class components)
-- [x] Comprehensive error handling
-- [x] Structured logging with context
-- [x] TypeScript strict typing (`unknown` for untrusted input)
-- [x] Security documentation
-
-### Files Created
-- `src/security/validation.ts` - Command and path validation
-- `src/security/schemas.ts` - Zod schemas for all requests
-- `src/security/errors.ts` - Error sanitization utilities
-
-### Testing
-- [x] IPC handlers verified working
-- [x] Validation tested with edge cases
-- [x] Security layers tested for bypass attempts
-
-## 🚀 Phase 2: Git Integration & App Setup (NEXT - Q1 2026)
-
-**Status**: Not Started
-
-**Goal**: Enable users to add Node.js apps from Git repositories with automatic dependency installation.
-
-### 2.1 Git Repository Cloning
-
-**Security Considerations**:
-- Validate Git URLs (https://, git@, ssh://)
-- Prevent command injection in git clone
-- Validate branch names (no shell metacharacters)
-- Sanitize repository URLs for logging
-
-**Tasks**:
-- [ ] Implement `GitManager.cloneRepository(url, branch, targetPath)`
-- [ ] Add progress tracking for clone operations
-- [ ] Handle authentication (SSH keys, personal access tokens)
-- [ ] Validate cloned repository structure (package.json presence)
-- [ ] Add timeout for long-running clones
-- [ ] Handle git errors gracefully
-
-**Implementation**:
-```typescript
-// src/lib/GitManager.ts
-export class GitManager {
-  async cloneRepository(
-    url: string,
-    branch: string,
-    targetPath: string,
-    onProgress?: (message: string) => void
-  ): Promise<void> {
-    // 1. Validate URL and branch
-    // 2. Ensure target path is safe
-    // 3. Execute git clone with validated parameters
-    // 4. Emit progress events
-    // 5. Verify package.json exists
-  }
-}
+### 📁 Current Architecture
+```
+src/
+├── main-full.ts              # Main process entry (IPC handlers, hooks)
+├── renderer.tsx              # UI components (React class components)
+├── types.ts                  # TypeScript interfaces
+├── lib/
+│   ├── NodeAppManager.ts     # Core app lifecycle management
+│   ├── GitManager.ts         # Git cloning with progress
+│   ├── ConfigManager.ts      # JSON config persistence
+│   ├── PortManager.ts        # Port allocation (3000-3999)
+│   └── NpmManager.ts         # Hybrid npm support (system/bundled)
+└── security/
+    ├── schemas.ts            # Zod validation schemas
+    ├── validation.ts         # Command validation
+    └── errors.ts             # Error sanitization
 ```
 
-### 2.2 Dependency Installation
+## 🚀 Parallel Development Plan
 
-**Security Considerations**:
-- Use validated install commands only
-- Set timeout for installs
-- Limit process resources
-- Validate package manager lockfiles
-
-**Tasks**:
-- [ ] Auto-detect package manager (npm/yarn/pnpm/bun)
-- [ ] Execute install command with progress updates
-- [ ] Handle installation failures with retry logic
-- [ ] Parse install output for progress reporting
-- [ ] Cache node_modules when appropriate
-- [ ] Verify installation success
-
-**Implementation**:
-```typescript
-async installDependencies(
-  appPath: string,
-  packageManager: 'npm' | 'yarn' | 'pnpm' | 'bun',
-  onProgress?: (message: string) => void
-): Promise<void> {
-  // 1. Validate install command
-  // 2. Set resource limits
-  // 3. Run install with validated command
-  // 4. Stream output to UI
-  // 5. Verify node_modules created
-}
-```
-
-### 2.3 Build Process (Optional)
-
-**Security Considerations**:
-- Validate build commands
-- Set build timeouts
-- Capture build errors safely
-
-**Tasks**:
-- [ ] Execute build command if configured
-- [ ] Stream build output to UI
-- [ ] Handle build failures
-- [ ] Verify build artifacts created
-
-### 2.4 App Configuration UI Enhancement
-
-**Tasks**:
-- [ ] Git URL input with real-time validation
-- [ ] Branch dropdown or input
-- [ ] Auto-detect package.json scripts
-- [ ] Command configuration with suggestions
-- [ ] Environment variable key-value editor
-- [ ] Port number input with availability check
-- [ ] Progress UI for clone/install/build
-
-### 2.5 Testing
-
-- [ ] Integration tests for Git operations
-- [ ] Mock git clone for unit tests
-- [ ] Test install failures and recovery
-- [ ] Validate security of all new operations
-- [ ] E2E test: Add app from GitHub → Install → Start
-
-## 📦 Phase 3: App Templates
-
-### 3.1 Express.js Template
-```json
-{
-  "name": "express-api",
-  "command": "node server.js",
-  "port": 3000,
-  "healthCheck": "/health"
-}
-```
-
-### 3.2 Next.js Template
-```json
-{
-  "name": "nextjs-app",
-  "command": "npm run dev",
-  "port": 3000,
-  "buildCommand": "npm run build"
-}
-```
-
-### 3.3 Custom Scripts
-- [ ] Support package.json scripts
-- [ ] Custom start commands
-- [ ] Environment variables
-- [ ] Working directory configuration
-
-## 🎨 Phase 4: UI Enhancement
-
-### 4.1 Status Dashboard
-```tsx
-<NodeAppsList>
-  <NodeApp
-    name="API Server"
-    status="running"
-    port={3001}
-    uptime="2h 15m"
-  />
-</NodeAppsList>
-```
-
-### 4.2 Controls
-- [ ] Start/Stop buttons
-- [ ] Restart functionality
-- [ ] View logs button
-- [ ] Open in browser
-
-### 4.3 Configuration UI
-- [ ] Add new app dialog
-- [ ] Edit app settings
-- [ ] Environment variables editor
-- [ ] Port configuration
-
-### 4.4 Log Viewer
-- [ ] Real-time log streaming
-- [ ] Log filtering
-- [ ] Log search
-- [ ] Export logs
-
-## 🔧 Phase 5: Advanced Features
-
-### 5.1 Lifecycle Management
-- [ ] Auto-start apps with site
-- [ ] Graceful shutdown on site stop
-- [ ] Restart on crash
-- [ ] Startup dependencies
-
-### 5.2 Integration Features
-- [ ] WordPress environment variables
-- [ ] Database connection sharing
-- [ ] Shared volumes
-- [ ] nginx proxy configuration
-
-### 5.3 Developer Tools
-- [ ] Debugger attachment
-- [ ] Performance profiling
-- [ ] Network inspection
-- [ ] Hot reload support
-
-### 5.4 Multi-App Support
-- [ ] Multiple apps per site
-- [ ] App dependencies
-- [ ] Shared configuration
-- [ ] Service discovery
-
-## 💾 Phase 6: Data Persistence
-
-### 6.1 Configuration Storage
-```typescript
-interface SiteConfig {
-  siteId: string;
-  apps: NodeApp[];
-  globalEnv: Record<string, string>;
-  autoStart: boolean;
-}
-```
-
-### 6.2 State Management
-- [ ] Persist app configurations
-- [ ] Remember port assignments
-- [ ] Store process history
-- [ ] Backup/restore configs
-
-## 🔒 Phase 7: Enhanced Security & Reliability
-
-**Note**: Core security already implemented in Phase 1.5
-
-### 7.1 Advanced Security
-- [ ] Process sandboxing (if feasible)
-- [ ] Resource limits (CPU, memory)
-- [ ] Network isolation options
-- [ ] Secret management (encrypted env vars)
-- [ ] Audit logging for sensitive operations
-- [ ] Rate limiting on operations
-
-### 7.2 Reliability Enhancements
-- [ ] Health checks (already partially implemented)
-- [ ] Auto-recovery from crashes
-- [ ] Circuit breakers for failing apps
-- [ ] Graceful degradation
-- [ ] Process restart strategies
-- [ ] Backup/restore configurations
-
-## 📊 Phase 8: Monitoring & Analytics
-
-- [ ] Resource usage tracking
-- [ ] Performance metrics
-- [ ] Error tracking
-- [ ] Usage analytics
-
-## 🔮 Future Ideas
-
-- **Docker Support**: Run containerized Node.js apps
-- **Remote Debugging**: Attach VS Code debugger
-- **App Marketplace**: Share app templates
-- **CI/CD Integration**: Deploy from Git
-- **Scaling**: Multiple instance support
-- **Service Mesh**: Inter-app communication
-
-## Implementation Priority
-
-### ✅ Completed (Q4 2025)
-1. ✅ Phase 1: Foundation - Basic addon structure, IPC, UI
-2. ✅ Phase 1.5: Security & Quality - 4-layer security architecture
-3. ✅ All critical issues resolved
-4. ✅ Production-ready foundation
-
-### Immediate (Q1 2026)
-**Phase 2: Git Integration & App Setup**
-1. Git repository cloning with validation
-2. Dependency installation with progress
-3. Enhanced UI for app configuration
-4. Build process support
-5. Integration testing
-
-### Short Term (Q2 2026)
-**Phase 3 & 4: Templates & UI Enhancement**
-1. Express.js and Next.js templates
-2. Log streaming UI
-3. Status dashboard
-4. Environment variable management
-5. Advanced UI controls
-
-### Medium Term (Q3 2026)
-**Phase 5: Lifecycle & Integration**
-1. Auto-start with site
-2. Multiple apps per site
-3. WordPress integration features
-4. Service discovery
-5. Health monitoring
-
-### Long Term (Q4 2026+)
-**Phases 6-8: Advanced Features**
-1. Docker support
-2. App marketplace/templates
-3. Advanced monitoring & analytics
-4. Service mesh capabilities
-
-## Success Metrics
-
-- **Adoption**: Number of sites using Node.js apps
-- **Reliability**: Uptime of managed processes
-- **Performance**: Resource usage efficiency
-- **Developer Satisfaction**: Time saved, ease of use
-- **Community**: Templates shared, issues resolved
-
-## Technical Decisions
-
-### Process Management
-- Use `child_process.spawn` for flexibility
-- Implement process pooling for efficiency
-- Use IPC for process communication
-
-### Data Storage
-- SQLite for app configurations
-- File-based logs with rotation
-- In-memory state with persistence
-
-### UI Architecture
-- React class components (no hooks)
-- Real-time updates via IPC
-- Responsive design
-
-### Testing Strategy
-- Unit tests for process management
-- Integration tests for IPC
-- E2E tests for UI workflows
-
-## Getting Started with Phase 2 Development
-
-**Prerequisites**: Phase 1 and 1.5 complete ✅
-
-```bash
-# Build the current codebase
-npm run build
-
-# Run existing tests
-npm test
-
-# Start developing Phase 2: Git Integration
-# 1. Implement GitManager.cloneRepository() in src/lib/GitManager.ts
-#    - Validate Git URL with existing validation patterns
-#    - Use spawn() with shell: false for git clone
-#    - Add progress event emitter
-#
-# 2. Add install functionality to NodeAppManager
-#    - Auto-detect package manager
-#    - Use validateInstallCommand() from security/validation.ts
-#    - Stream install output to logs
-#
-# 3. Update AddAppModal.tsx for Git workflow
-#    - Git URL input field
-#    - Branch selection
-#    - Progress indicator during clone/install
-#
-# 4. Add IPC handlers for clone/install operations
-#    - Follow security pattern from main-full.ts
-#    - Add schemas to security/schemas.ts
-#
-# 5. Test with real repositories
-#    - Try cloning from GitHub
-#    - Test various package managers
-#    - Verify security validations
-```
-
-### Security Checklist for New Features
-
-When implementing Phase 2, ensure:
-- [ ] All new IPC handlers use Zod validation
-- [ ] Git URLs validated before use
-- [ ] Branch names validated (no shell metacharacters)
-- [ ] All commands go through validateCommand()
-- [ ] All paths go through validatePath()
-- [ ] Errors sanitized with logAndSanitizeError()
-- [ ] Operations logged with context
-- [ ] Timeouts set for long-running operations
-
-## Questions for Phase 2
-
-1. How to handle Node.js version management?
-   - Use Local's bundled Node.js or allow version selection?
-
-2. Should we support all package managers?
-   - Currently planned: npm, yarn, pnpm, bun
-
-3. How to handle app crashes gracefully?
-   - Auto-restart? Manual restart? Configurable?
-
-4. What's the best way to proxy requests?
-   - Direct port access or nginx integration?
-
-5. Should we integrate with Local's router?
-   - For custom domains: app.sitename.local?
-
-## Resources
-
-### Completed
-- ✅ Node.js process management (spawn with security)
-- ✅ Electron IPC patterns (ipcMain.handle)
-- ✅ Security best practices (4-layer architecture)
-- ✅ TypeScript patterns for validation
-
-### Needed for Phase 2
-- [ ] Git operations best practices
-- [ ] Package manager detection algorithms
-- [ ] Progress reporting patterns
-- [ ] UI/UX for clone/install flows
-- [ ] Integration testing strategies
+This roadmap is optimized for **9 concurrent agents** working in parallel. Work streams are organized by priority and dependencies.
 
 ---
 
-**Current Status**: Phase 1 & 1.5 Complete ✅
-**Next Phase**: Phase 2 - Git Integration & App Setup
-**Timeline**: Q1 2026 Target
-**Last Updated**: November 21, 2025
+## Priority 1: WordPress Integration (Distinguishing Features)
+
+### Work Stream A1: WordPress Environment Variables Auto-Injection ⭐
+
+**Goal**: Automatically inject WordPress site configuration into Node.js apps' environment variables
+
+**Agent**: Backend Integration Specialist
+**Dependencies**: None (can start immediately)
+**Estimated Effort**: Medium
+**Files to Create/Modify**:
+- `src/lib/WordPressEnvManager.ts` (NEW)
+- `src/lib/NodeAppManager.ts` (modify startApp method)
+- `src/types.ts` (add WP env interfaces)
+
+**Tasks**:
+1. Create `WordPressEnvManager` class to extract WordPress configuration
+2. Parse Local's site object to get:
+   - `WP_DB_HOST`: Database hostname
+   - `WP_DB_NAME`: Database name
+   - `WP_DB_USER`: Database username
+   - `WP_DB_PASSWORD`: Database password
+   - `WP_SITE_URL`: WordPress site URL (e.g., `http://mysite.local`)
+   - `WP_HOME_URL`: WordPress home URL
+   - `WP_ADMIN_URL`: WordPress admin URL
+   - `WP_CONTENT_DIR`: Path to wp-content directory
+   - `WP_UPLOADS_DIR`: Path to uploads directory
+3. Integrate with `NodeAppManager.startApp()` to merge WP env vars with app env vars
+4. Add UI toggle: "Inject WordPress Environment Variables" (default: true)
+5. Add to `AppConfig` interface: `injectWpEnv: boolean`
+6. Update IPC schemas to validate WP env injection flag
+
+**Security Considerations**:
+- Sanitize database credentials before logging
+- Validate Local's site object structure
+- Never expose credentials in UI or logs
+- Use Zod schema for validation
+
+**Testing**:
+- Unit tests: Extract env vars from mock site object
+- Integration test: Start app with WP env vars injected
+- Security test: Verify credentials not logged
+
+**Success Criteria**:
+- Node.js apps can connect to WordPress database using injected env vars
+- UI toggle works correctly
+- No credentials leaked in logs
+- Tests passing
+
+---
+
+### Work Stream A2: Monorepo Support with Subdirectories ⭐
+
+**Goal**: Support cloning Git repos and using apps/plugins from subdirectories
+
+**Agent**: Git & File System Specialist
+**Dependencies**: None (can start immediately)
+**Estimated Effort**: Medium
+**Files to Create/Modify**:
+- `src/lib/GitManager.ts` (modify cloneRepository)
+- `src/lib/ConfigManager.ts` (add subdirectory support)
+- `src/renderer.tsx` (add subdirectory input field)
+- `src/types.ts` (add subdirectory field to NodeApp)
+- `src/security/schemas.ts` (validate subdirectory paths)
+
+**Tasks**:
+1. Add `subdirectory` field to `NodeApp` interface (optional string)
+2. Update `GitManager.cloneRepository()` to support subdirectory parameter
+3. After cloning, verify subdirectory exists and contains package.json
+4. Update `NodeAppManager` to use subdirectory as working directory:
+   - Install dependencies in subdirectory
+   - Build in subdirectory
+   - Start app from subdirectory
+5. Add UI field: "Subdirectory (optional)" with placeholder: "e.g., packages/api"
+6. Update validation to prevent path traversal (e.g., no `../`)
+7. Update config persistence to store subdirectory path
+
+**Security Considerations**:
+- Validate subdirectory path (no `../`, must be relative)
+- Ensure subdirectory is within cloned repo
+- Check subdirectory exists before operations
+- Add to Zod schema validation
+
+**Edge Cases**:
+- Subdirectory doesn't exist
+- Subdirectory doesn't have package.json
+- Nested subdirectories (e.g., `apps/backend/api`)
+- Monorepo with multiple package.json files
+
+**Testing**:
+- Test with monorepo containing multiple apps
+- Test nested subdirectories
+- Test path traversal attempts (should fail)
+- Test non-existent subdirectories (should fail)
+
+**Success Criteria**:
+- Can clone repo and use app from subdirectory
+- Path traversal attempts blocked
+- UI shows subdirectory field
+- Tests passing
+
+---
+
+### Work Stream A3: WordPress Plugin Installation & Activation ⭐
+
+**Goal**: Support installing and activating WordPress plugins from Git repos or monorepo subdirectories
+
+**Agent**: WordPress Integration Specialist
+**Dependencies**: A2 (uses subdirectory support)
+**Estimated Effort**: Large
+**Files to Create/Modify**:
+- `src/lib/WordPressPluginManager.ts` (NEW)
+- `src/renderer.tsx` (add plugin configuration UI)
+- `src/types.ts` (add WordPressPlugin interface)
+- `src/main-full.ts` (add IPC handlers for plugin operations)
+- `src/security/schemas.ts` (add plugin validation schemas)
+
+**Tasks**:
+1. Create `WordPressPluginManager` class:
+   - `installPlugin(gitUrl, branch, subdirectory?)`: Clone plugin to wp-content/plugins
+   - `activatePlugin(pluginSlug)`: Activate via WP-CLI
+   - `deactivatePlugin(pluginSlug)`: Deactivate via WP-CLI
+   - `removePlugin(pluginSlug)`: Delete plugin directory
+2. Use WP-CLI for activation (available at: `/Applications/Local.app/Contents/Resources/extraResources/bin/wp-cli/wp`)
+3. Add `WordPressPlugin` interface:
+   ```typescript
+   interface WordPressPlugin {
+     id: string;
+     name: string;
+     gitUrl: string;
+     branch: string;
+     subdirectory?: string;  // For monorepos
+     status: 'installing' | 'installed' | 'active' | 'error';
+     installedPath: string;
+     createdAt: Date;
+   }
+   ```
+4. Add IPC handlers:
+   - `node-orchestrator:install-plugin`
+   - `node-orchestrator:activate-plugin`
+   - `node-orchestrator:deactivate-plugin`
+   - `node-orchestrator:remove-plugin`
+   - `node-orchestrator:get-plugins`
+5. Add UI section: "WordPress Plugins" with list of installed plugins
+6. Reuse Git cloning logic from `GitManager`
+7. Store plugin configs in same JSON file as apps
+
+**Security Considerations**:
+- Validate WP-CLI path exists
+- Sanitize plugin slugs (alphanumeric + dashes only)
+- Validate Git URLs
+- Verify plugin directory is within wp-content/plugins
+- Use Zod schemas for all inputs
+
+**Integration Points**:
+- **A2**: Uses subdirectory support for monorepo plugins
+- **A1**: Could inject WP env vars into plugin build process if needed
+
+**Testing**:
+- Test installing plugin from Git
+- Test activating/deactivating via WP-CLI
+- Test monorepo plugin (subdirectory)
+- Test cleanup on site deletion
+
+**Success Criteria**:
+- Can install WordPress plugin from Git
+- Can activate plugin via WP-CLI
+- Plugins survive Local restart
+- Monorepo plugins work correctly
+- Tests passing
+
+---
+
+## Priority 2: Developer Experience Improvements
+
+### Work Stream B1: Package.json Script Detection
+
+**Goal**: Auto-detect and suggest npm scripts from package.json
+
+**Agent**: Developer UX Specialist
+**Dependencies**: None (can start immediately)
+**Estimated Effort**: Small
+**Files to Create/Modify**:
+- `src/lib/PackageJsonParser.ts` (NEW)
+- `src/renderer.tsx` (add script dropdown)
+
+**Tasks**:
+1. Create `PackageJsonParser.getScripts(appPath)` to read package.json scripts
+2. After Git clone, parse package.json and extract scripts
+3. Show dropdown in UI: "Detected Scripts" with options like:
+   - `npm run dev`
+   - `npm run start`
+   - `npm run build`
+   - Custom command (manual input)
+4. Pre-populate start/build commands based on detected scripts
+
+**Success Criteria**:
+- Scripts auto-detected after clone
+- Dropdown shows available scripts
+- Manual override still possible
+
+---
+
+### Work Stream B2: Better Error Messages & Validation
+
+**Goal**: Improve user-facing error messages and input validation
+
+**Agent**: UX & Validation Specialist
+**Dependencies**: None (can start immediately)
+**Estimated Effort**: Small
+**Files to Create/Modify**:
+- `src/security/errors.ts` (enhance sanitization)
+- `src/renderer.tsx` (add inline validation feedback)
+
+**Tasks**:
+1. Add real-time validation feedback in UI:
+   - Git URL validation (show checkmark/error as user types)
+   - Port availability check before save
+   - Command syntax validation
+2. Improve error messages:
+   - "Git clone failed" → "Failed to clone repository. Check URL and network connection."
+   - "npm install failed" → "Dependency installation failed. Check package.json and try again."
+3. Add contextual help tooltips for each field
+4. Show validation errors inline (not just in console)
+
+**Success Criteria**:
+- Users see helpful error messages
+- Real-time validation prevents invalid inputs
+- Reduced troubleshooting time
+
+---
+
+### Work Stream B3: Modern React UI Refactor
+
+**Goal**: Modernize UI with React hooks and JSX
+
+**Agent**: Frontend Specialist
+**Dependencies**: None (can start immediately, but should coordinate with other UI changes)
+**Estimated Effort**: Medium
+**Files to Modify**:
+- `src/renderer.tsx` (complete rewrite)
+
+**Tasks**:
+1. Convert from React.createElement to JSX
+2. Convert class components to functional components with hooks
+3. Use `useState`, `useEffect`, `useCallback` appropriately
+4. Improve component structure:
+   - Split into smaller components (AppCard, AppList, AddAppModal, etc.)
+   - Extract reusable components
+5. Add proper TypeScript types for all components
+6. Use CSS modules or styled-components for styling
+
+**Considerations**:
+- Original codebase avoided hooks due to crashes - investigate if still an issue
+- May need to update build config for JSX support
+- Should coordinate with B4 (log streaming) for UI integration
+
+**Success Criteria**:
+- Modern React code with hooks
+- JSX instead of createElement
+- No crashes or regressions
+- Improved code maintainability
+
+---
+
+### Work Stream B4: Real-time Log Streaming
+
+**Goal**: Stream logs in real-time instead of polling
+
+**Agent**: Real-time Systems Specialist
+**Dependencies**: B3 (benefits from modern React UI)
+**Estimated Effort**: Medium
+**Files to Create/Modify**:
+- `src/lib/LogStreamer.ts` (NEW)
+- `src/main-full.ts` (add streaming IPC handler)
+- `src/renderer.tsx` (add log streaming UI)
+
+**Tasks**:
+1. Create `LogStreamer` class using `fs.watch()` or `tail -f` pattern
+2. Add IPC channel for streaming: `node-orchestrator:stream-logs`
+3. Use event-based streaming instead of polling
+4. Add UI controls:
+   - Auto-scroll toggle
+   - Clear logs button
+   - Log level filter (stdout/stderr)
+   - Search logs
+5. Optimize for performance (buffer updates, virtualized scrolling)
+
+**Success Criteria**:
+- Logs stream in real-time
+- No polling/refresh needed
+- UI performance is good even with many logs
+
+---
+
+## Priority 3: Infrastructure & Quality
+
+### Work Stream C1: Comprehensive Test Suite
+
+**Goal**: Add unit, integration, and E2E tests
+
+**Agent**: Test Engineer
+**Dependencies**: None (can start immediately)
+**Estimated Effort**: Large
+**Files to Create**:
+- `tests/unit/` (unit tests for all managers)
+- `tests/integration/` (IPC handler tests)
+- `tests/e2e/` (full workflow tests)
+
+**Tasks**:
+1. Unit tests for all manager classes:
+   - `GitManager.test.ts`
+   - `NodeAppManager.test.ts`
+   - `ConfigManager.test.ts`
+   - `PortManager.test.ts`
+   - `NpmManager.test.ts`
+   - `WordPressEnvManager.test.ts` (new)
+   - `WordPressPluginManager.test.ts` (new)
+2. Integration tests for IPC handlers
+3. E2E tests:
+   - Add app from Git → Install → Start → View logs → Stop → Remove
+   - Install WordPress plugin → Activate → Deactivate → Remove
+4. Set up CI pipeline (GitHub Actions)
+5. Target code coverage: 80%+
+
+**Success Criteria**:
+- 80%+ code coverage
+- All critical paths tested
+- Tests run in CI
+- No flaky tests
+
+---
+
+### Work Stream C2: TypeScript Strict Mode
+
+**Goal**: Enable TypeScript strict mode and fix all errors
+
+**Agent**: TypeScript Specialist
+**Dependencies**: None (can start immediately)
+**Estimated Effort**: Medium
+**Files to Modify**: All TypeScript files
+
+**Tasks**:
+1. Enable `"strict": true` in tsconfig.json
+2. Fix all type errors:
+   - Add proper return types
+   - Remove `any` types
+   - Add null checks
+   - Fix function signatures
+3. Enable additional strict checks:
+   - `"noImplicitAny": true`
+   - `"strictNullChecks": true`
+   - `"strictFunctionTypes": true`
+   - `"strictPropertyInitialization": true`
+
+**Success Criteria**:
+- `tsc` passes with strict mode
+- No `any` types
+- Improved type safety
+
+---
+
+### Work Stream C3: Security Audit & Hardening
+
+**Goal**: Comprehensive security review and hardening
+
+**Agent**: Security Specialist
+**Dependencies**: None (can start immediately, review existing code)
+**Estimated Effort**: Medium
+**Files to Review**: All files, especially IPC handlers and spawn calls
+
+**Tasks**:
+1. Review all IPC handlers for validation gaps
+2. Audit all `spawn()` calls for command injection risks
+3. Review file path handling for traversal vulnerabilities
+4. Check for credential leakage in logs
+5. Add rate limiting to prevent DoS
+6. Review dependencies for known vulnerabilities (`npm audit`)
+7. Add security documentation:
+   - Threat model
+   - Security architecture diagram
+   - Incident response plan
+8. Penetration testing:
+   - Attempt command injection
+   - Attempt path traversal
+   - Attempt XSS in UI
+
+**Success Criteria**:
+- Zero high/critical vulnerabilities
+- All attack vectors mitigated
+- Security documentation complete
+- Pen test passed
+
+---
+
+## Priority 4: Documentation & Polish
+
+### Work Stream D1: User Documentation
+
+**Goal**: Create comprehensive user guide
+
+**Agent**: Technical Writer
+**Dependencies**: All features complete
+**Estimated Effort**: Medium
+**Files to Create**:
+- `docs/USER_GUIDE.md`
+- `docs/TROUBLESHOOTING.md`
+- `docs/EXAMPLES.md`
+
+**Tasks**:
+1. User guide:
+   - Getting started
+   - Adding Node.js apps
+   - Adding WordPress plugins
+   - Environment variables
+   - Monorepo setup
+   - Common workflows
+2. Troubleshooting guide:
+   - Common errors and solutions
+   - Debug logging
+   - Support contact info
+3. Examples:
+   - Express.js API with WordPress
+   - Next.js frontend with WordPress backend
+   - Monorepo with multiple apps
+   - WP plugin development workflow
+
+**Success Criteria**:
+- Users can follow docs without support
+- All features documented
+- Examples are working
+
+---
+
+### Work Stream D2: Code Documentation & Cleanup
+
+**Goal**: Improve code comments and remove dead code
+
+**Agent**: Code Quality Specialist
+**Dependencies**: All features complete
+**Estimated Effort**: Small
+**Files to Review**: All source files
+
+**Tasks**:
+1. Add JSDoc comments to all public methods
+2. Add inline comments for complex logic
+3. Remove dead code and commented-out code
+4. Remove unused imports
+5. Standardize code formatting (Prettier)
+6. Update README.md with latest features
+
+**Success Criteria**:
+- All public APIs documented
+- No dead code
+- Consistent formatting
+- README is up-to-date
+
+---
+
+## 📈 Phased Development Strategy
+
+### Phase 1: WordPress Integration (Weeks 1-3)
+**Parallel Work Streams**: A1, A2 (2 agents)
+- Week 1: A1 (WP Env Injection) + A2 (Monorepo Support)
+- Week 2: A3 (WP Plugin Management) depends on A2
+- Week 3: Integration testing, bug fixes
+
+**Deliverable**: v2.1.0 with all three distinguishing features
+
+### Phase 2: Developer Experience (Weeks 4-6)
+**Parallel Work Streams**: B1, B2, B3, B4 (4 agents)
+- Week 4-5: All B streams in parallel
+- Week 6: Integration, testing, bug fixes
+
+**Deliverable**: v2.2.0 with improved DX
+
+### Phase 3: Quality & Infrastructure (Weeks 7-9)
+**Parallel Work Streams**: C1, C2, C3 (3 agents)
+- Week 7-8: All C streams in parallel
+- Week 9: Review, fix, verify
+
+**Deliverable**: v2.3.0 with production-grade quality
+
+### Phase 4: Documentation & Polish (Weeks 10-11)
+**Parallel Work Streams**: D1, D2 (2 agents)
+- Week 10-11: Documentation and cleanup
+
+**Deliverable**: v3.0.0 ready for public release
+
+---
+
+## 🔗 Dependency Graph
+
+```
+Legend: → depends on, || parallel with
+
+Phase 1 (WordPress Integration):
+A1 (WP Env Injection)    || A2 (Monorepo Support)
+                            ↓
+                         A3 (WP Plugin Mgmt)
+
+Phase 2 (Developer Experience):
+B1 (Script Detection) || B2 (Better Errors) || B3 (React Refactor)
+                                                      ↓
+                                                   B4 (Log Streaming)
+
+Phase 3 (Quality):
+C1 (Tests) || C2 (TypeScript Strict) || C3 (Security Audit)
+
+Phase 4 (Documentation):
+D1 (User Docs) || D2 (Code Docs)
+```
+
+---
+
+## 👥 Agent Assignments
+
+**Total Agents**: 9 concurrent agents
+
+### Phase 1 Agents
+1. **Backend Integration Specialist** → A1 (WP Env Injection)
+2. **Git & File System Specialist** → A2 (Monorepo Support)
+3. **WordPress Integration Specialist** → A3 (WP Plugin Management)
+
+### Phase 2 Agents
+4. **Developer UX Specialist** → B1 (Script Detection)
+5. **UX & Validation Specialist** → B2 (Better Errors)
+6. **Frontend Specialist** → B3 (React Refactor)
+7. **Real-time Systems Specialist** → B4 (Log Streaming)
+
+### Phase 3 Agents
+8. **Test Engineer** → C1 (Tests)
+9. **TypeScript Specialist** → C2 (TypeScript Strict)
+10. **Security Specialist** → C3 (Security Audit)
+
+### Phase 4 Agents
+11. **Technical Writer** → D1 (User Docs)
+12. **Code Quality Specialist** → D2 (Code Docs)
+
+**Note**: Agents can be reused across phases. Max concurrent: 4 agents in Phase 2.
+
+---
+
+## 🎯 Quality Gates
+
+Each work stream must pass these gates before merge:
+
+### Code Quality
+- [ ] TypeScript compiles without errors
+- [ ] ESLint passes with no warnings
+- [ ] Code follows patterns in DEVELOPMENT_GUIDELINES.md
+- [ ] No console.log() (use logger instead)
+
+### Testing
+- [ ] Unit tests written and passing
+- [ ] Integration tests passing
+- [ ] Manual testing completed
+- [ ] No regressions introduced
+
+### Security
+- [ ] All inputs validated with Zod schemas
+- [ ] Commands sanitized before execution
+- [ ] Paths validated (no traversal)
+- [ ] Errors sanitized before display
+- [ ] No credentials in logs
+
+### Documentation
+- [ ] JSDoc comments on public methods
+- [ ] README updated if needed
+- [ ] CHANGELOG entry added
+- [ ] User-facing changes documented
+
+### Git
+- [ ] Branch created from `review-and-improve`
+- [ ] Commits follow conventional format
+- [ ] PR description complete
+- [ ] Code reviewed and approved
+- [ ] Merged to `review-and-improve` (not `main`)
+
+---
+
+## 📊 Success Metrics
+
+### Adoption Metrics
+- Number of sites using Node.js Orchestrator
+- Number of apps managed per site
+- Number of WordPress plugins installed via addon
+
+### Performance Metrics
+- App start time < 5 seconds
+- UI responsiveness (no freezing)
+- Memory usage < 100 MB per app
+- Build time < 2 minutes for typical app
+
+### Quality Metrics
+- Code coverage > 80%
+- Zero critical security vulnerabilities
+- < 5 bugs per 100 users per month
+- Mean time to resolution < 48 hours
+
+### Developer Experience Metrics
+- Time to add app: < 2 minutes
+- User satisfaction score > 4.5/5
+- GitHub stars growth
+- Community contributions
+
+---
+
+## 🔮 Future Enhancements (Beyond v3.0)
+
+### Advanced Features
+- **Docker Support**: Run containerized Node.js apps
+- **Remote Debugging**: Attach VS Code debugger
+- **App Templates Marketplace**: Share app configurations
+- **CI/CD Integration**: Deploy from Git on push
+- **Scaling**: Multiple instance support
+- **Service Mesh**: Inter-app communication
+- **Health Dashboards**: Advanced monitoring
+- **Resource Limits**: CPU/memory limits per app
+- **Network Isolation**: Containerized networking
+- **Secret Management**: Encrypted environment variables
+
+### WordPress Integrations
+- **WP-CLI Integration**: Run WP-CLI commands from UI
+- **Database Migrations**: Run migrations on WP database
+- **REST API Proxy**: Proxy Node.js requests to WP REST API
+- **GraphQL Support**: WPGraphQL integration
+- **Theme Development**: Support WP theme development workflow
+- **Multisite Support**: Manage apps per subsite
+
+---
+
+## 🚨 Risk Mitigation
+
+### Technical Risks
+1. **Risk**: WP-CLI path changes in future Local versions
+   - **Mitigation**: Detect WP-CLI path dynamically, don't hardcode
+
+2. **Risk**: Monorepo subdirectory validation bypassed
+   - **Mitigation**: Comprehensive path validation tests, security audit
+
+3. **Risk**: WordPress plugin conflicts
+   - **Mitigation**: Document plugin requirements, add conflict detection
+
+4. **Risk**: Large repo clone times
+   - **Mitigation**: Add timeout handling, progress indicators, cancellation
+
+### Process Risks
+1. **Risk**: Merge conflicts between parallel agents
+   - **Mitigation**: Clear file ownership per work stream, daily syncs
+
+2. **Risk**: Breaking changes between work streams
+   - **Mitigation**: API contracts defined upfront, integration tests
+
+3. **Risk**: Security vulnerabilities introduced
+   - **Mitigation**: Security specialist reviews all PRs, automated scanning
+
+---
+
+## 📚 Resources for Developers
+
+### Essential Reading
+- `CONTEXT.md`: Project overview and architecture
+- `DEVELOPMENT_GUIDELINES.md`: Coding standards and best practices
+- `src/security/`: Security implementation examples
+- Kitchen Sink addon: `/Users/jeremy.pollock/development/wpengine/local/addons/local-addon-kitchen-sink`
+
+### Key Concepts
+- **Local Hooks**: `siteStarted`, `siteStopping`, `siteDeleting`
+- **IPC Patterns**: `ipcMain.handle()` with Zod validation
+- **Process Spawning**: `spawn()` with `shell: false` for security
+- **Local's Node.js**: `process.execPath` + `ELECTRON_RUN_AS_NODE='1'`
+- **Hybrid npm**: System npm preferred, bundled npm fallback
+
+### Development Commands
+```bash
+# Build TypeScript
+npm run build
+
+# Watch mode (auto-rebuild)
+npm run watch
+
+# Run tests
+npm test
+
+# Security audit
+npm audit
+
+# Type check
+npm run type-check
+
+# Link addon to Local
+ln -sf $(pwd) ~/.config/Local/addons/local-addon-node-orchestrator
+```
+
+---
+
+## 🎉 Definition of Done for v3.0
+
+The project is ready for public release when:
+
+- [x] v2.0.0 complete (current state)
+- [ ] All Phase 1 work streams complete (A1, A2, A3)
+- [ ] All Phase 2 work streams complete (B1, B2, B3, B4)
+- [ ] All Phase 3 work streams complete (C1, C2, C3)
+- [ ] All Phase 4 work streams complete (D1, D2)
+- [ ] All quality gates passed
+- [ ] All tests passing (80%+ coverage)
+- [ ] Security audit passed
+- [ ] User documentation complete
+- [ ] Demo video created
+- [ ] Blog post written
+- [ ] GitHub release published
+- [ ] npm package published (if applicable)
+
+---
+
+**Current Branch**: `review-and-improve`
+**Target Branch for PRs**: `review-and-improve` (NOT `main`)
+**Main Branch**: `main` (production releases only)
+**Current Version**: v2.0.0
+**Target Version**: v3.0.0
+**Estimated Timeline**: 11 weeks
+**Last Updated**: November 22, 2025
