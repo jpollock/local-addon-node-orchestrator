@@ -117,7 +117,7 @@ const autoDetectCommandSchema = z
 /**
  * Node version validation
  */
-const nodeVersionSchema = z.enum(['18.x', '20.x', '21.x', '22.x']);
+const nodeVersionSchema = z.enum(['18.x', '20.x', '21.x', '22.x']).default('20.x');
 
 /**
  * Environment variables validation
@@ -132,13 +132,13 @@ export const AddAppRequestSchema = z.object({
   app: z.object({
     name: appNameSchema,
     gitUrl: gitUrlSchema,
-    branch: branchSchema,
+    branch: branchSchema.optional().default('main'),
     subdirectory: subdirectorySchema,
-    installCommand: autoDetectCommandSchema,
+    installCommand: autoDetectCommandSchema.optional().default(''),
     buildCommand: optionalCommandSchema,
-    startCommand: commandSchema,
-    nodeVersion: nodeVersionSchema,
-    autoStart: z.boolean(),
+    startCommand: commandSchema.optional().default('npm start'),
+    nodeVersion: nodeVersionSchema.optional(),
+    autoStart: z.boolean().optional().default(false),
     injectWpEnv: z.boolean().optional().default(true), // Default to true - auto-inject WP env vars
     env: envSchema.optional().default({})
   })
