@@ -256,7 +256,7 @@ export default function (context: LocalMain.AddonMainContext): void {
         appId: validatedRequest.appId
       });
 
-      const app = await appManager.startApp(validatedRequest.siteId, site.path, validatedRequest.appId);
+      const app = await appManager.startApp(validatedRequest.siteId, site.path, validatedRequest.appId, site);
 
       localLogger.info('Successfully started Node.js app', {
         siteId: validatedRequest.siteId,

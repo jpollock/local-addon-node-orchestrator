@@ -7,7 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs-extra';
 import * as Local from '@getflywheel/local';
 import { v4 as uuidv4 } from 'uuid';
-import { GitManager, GitCloneOptions } from '../GitManager';
+import { GitManager } from '../GitManager';
 import { WpCliManager, WpCliResult } from './WpCliManager';
 
 export interface WordPressPlugin {
@@ -220,20 +220,7 @@ export class WordPressPluginManager {
         }
       }
 
-      // Return error plugin object
-      const plugin: WordPressPlugin = {
-        id: pluginId,
-        name: config.name,
-        gitUrl: config.gitUrl,
-        branch: config.branch,
-        subdirectory: config.subdirectory,
-        slug: config.slug,
-        status: 'error',
-        installedPath: '',
-        error: this.sanitizeError(error),
-        createdAt: new Date()
-      };
-
+      // Re-throw error after cleanup
       throw error;
     }
   }

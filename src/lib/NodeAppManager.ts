@@ -208,7 +208,7 @@ export class NodeAppManager {
 
     // Restart if it was running
     if (wasRunning) {
-      return await this.startApp(siteId, sitePath, appId);
+      return await this.startApp(siteId, sitePath, appId, undefined);
     }
 
     return updatedApp;
@@ -253,7 +253,7 @@ export class NodeAppManager {
   /**
    * Start an app
    */
-  async startApp(siteId: string, sitePath: string, appId: string): Promise<NodeApp> {
+  async startApp(siteId: string, sitePath: string, appId: string, site?: any): Promise<NodeApp> {
     const app = await this.configManager.getApp(siteId, sitePath, appId);
 
     if (!app) {
@@ -552,9 +552,9 @@ export class NodeAppManager {
   /**
    * Restart an app
    */
-  async restartApp(siteId: string, sitePath: string, appId: string): Promise<NodeApp> {
+  async restartApp(siteId: string, sitePath: string, appId: string, site?: any): Promise<NodeApp> {
     await this.stopApp(siteId, sitePath, appId);
-    return await this.startApp(siteId, sitePath, appId);
+    return await this.startApp(siteId, sitePath, appId, site);
   }
 
   /**
