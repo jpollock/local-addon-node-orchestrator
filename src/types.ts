@@ -1,3 +1,15 @@
+// Re-export config types from schema
+export type {
+  PluginConfig,
+  BundledPluginConfig,
+  GitPluginConfig,
+  ZipPluginConfig,
+  WpOrgPluginConfig,
+  NodeConfig,
+  WordPressConfig,
+  NodeOrchestratorConfig,
+} from './lib/schemas/nodeOrchestratorConfig';
+
 export interface NodeApp {
   id: string;
   name: string;
@@ -20,6 +32,7 @@ export interface NodeApp {
   startedAt?: Date;
   createdAt?: Date;             // When the app was added
   updatedAt?: Date;             // When the app was last updated
+  bundledPlugins?: string[];    // IDs of WordPress plugins bundled with this app
   healthCheck?: HealthCheckConfig;
   logs?: string[];
 }
@@ -172,19 +185,26 @@ export interface WordPressEnv {
 }
 
 // WordPress Plugin Types
+export type PluginSource = 'git' | 'bundled' | 'zip' | 'wporg';
+
 export interface WordPressPlugin {
   id: string;
   name: string;
-  gitUrl: string;
-  branch: string;
-  subdirectory?: string;  // For monorepo plugins
   slug: string;           // Directory name in wp-content/plugins
+  source: PluginSource;   // Installation source
   status: 'installing' | 'installed' | 'active' | 'inactive' | 'error';
   installedPath: string;
   version?: string;
   error?: string;
   createdAt: Date;
   updatedAt?: Date;
+
+  // Source-specific fields (optional based on source type)
+  gitUrl?: string;        // For git and bundled sources
+  branch?: string;        // For git source
+  subdirectory?: string;  // For monorepo plugins (git/bundled)
+  zipUrl?: string;        // For zip source
+  bundledPath?: string;   // For bundled source (path within node app repo)
 }
 
 export interface SiteWordPressPlugins {
