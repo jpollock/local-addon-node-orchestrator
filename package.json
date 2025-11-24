@@ -5,6 +5,11 @@
   "description": "Manage Node.js applications alongside WordPress sites in Local",
   "main": "lib/main-full.js",
   "renderer": "lib/renderer.js",
+  "exports": {
+    ".": "./lib/main-full.js",
+    "./api": "./lib/api/index.js"
+  },
+  "types": "lib/api/index.d.ts",
   "scripts": {
     "build": "npm run clean && npm run compile",
     "build:minimal": "npm run clean && npm run compile",
