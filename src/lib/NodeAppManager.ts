@@ -121,8 +121,18 @@ export class NodeAppManager {
         throw new Error(installResult.error || 'Failed to install dependencies');
       }
 
-      // Step 4: Build if build command specified
-      if (appConfig.buildCommand) {
+      // Step 4: Auto-detect build command if not specified
+      let buildCommand = appConfig.buildCommand;
+      if (!buildCommand) {
+        const detectedBuildCommand = await this.detectBuildCommand(workingPath, packageManager);
+        if (detectedBuildCommand) {
+          console.log(`[NodeAppManager] Auto-detected build command: ${detectedBuildCommand}`);
+          buildCommand = detectedBuildCommand;
+        }
+      }
+
+      // Step 5: Build if build command available
+      if (buildCommand) {
         if (onProgress) {
           onProgress({
             phase: 'building',
@@ -131,7 +141,7 @@ export class NodeAppManager {
           });
         }
 
-        const buildResult = await this.buildApp(workingPath, appConfig.buildCommand, onProgress);
+        const buildResult = await this.buildApp(workingPath, buildCommand, onProgress);
 
         if (!buildResult.success) {
           // Clean up on build failure
@@ -215,7 +225,7 @@ export class NodeAppManager {
         branch: appConfig.branch || 'main',
         subdirectory: appConfig.subdirectory,
         installCommand: appConfig.installCommand || `${packageManager} install`,
-        buildCommand: appConfig.buildCommand || '',
+        buildCommand: buildCommand || '',
         startCommand: appConfig.startCommand || 'npm start',
         nodeVersion: appConfig.nodeVersion || '20.x',
         env: appConfig.env || {},
@@ -730,6 +740,41 @@ export class NodeAppManager {
 
     // Default to npm
     return 'npm';
+  }
+
+  /**
+   * Detect build command from package.json
+   */
+  private async detectBuildCommand(appPath: string, packageManager: string): Promise<string | undefined> {
+    try {
+      const packageJsonPath = path.join(appPath, 'package.json');
+
+      if (!await fs.pathExists(packageJsonPath)) {
+        return undefined;
+      }
+
+      const packageJson = await fs.readJson(packageJsonPath);
+
+      // Check if there's a build script
+      if (packageJson.scripts && packageJson.scripts.build) {
+        // Return the appropriate command based on package manager
+        switch (packageManager) {
+          case 'yarn':
+            return 'yarn build';
+          case 'pnpm':
+            return 'pnpm build';
+          case 'bun':
+            return 'bun run build';
+          default:
+            return 'npm run build';
+        }
+      }
+
+      return undefined;
+    } catch (error) {
+      console.error('[NodeAppManager] Error detecting build command:', error);
+      return undefined;
+    }
   }
 
   /**
