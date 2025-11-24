@@ -26,7 +26,7 @@ import {
 import { logAndSanitizeError } from './security/errors';
 
 export default function (context: LocalMain.AddonMainContext): void {
-  const { localLogger, siteData } = LocalMain.getServiceContainer().cradle;
+  const { localLogger, siteData, siteProcessManager, siteDatabase } = LocalMain.getServiceContainer().cradle;
 
   console.log('[Node Orchestrator] Main addon loading...');
   console.log('[Node Orchestrator] Available hooks:', Object.keys(context.hooks || {}));
@@ -168,7 +168,9 @@ export default function (context: LocalMain.AddonMainContext): void {
 
       localLogger.info('Adding Node.js app', {
         siteId: validatedRequest.siteId,
-        appName: validatedRequest.app.name
+        appName: validatedRequest.app.name,
+        gitUrl: validatedRequest.app.gitUrl,
+        subdirectory: validatedRequest.app.subdirectory || '(none)'
       });
 
       const app = await appManager.addApp(site, validatedRequest.app);
@@ -523,7 +525,8 @@ export default function (context: LocalMain.AddonMainContext): void {
       localLogger.info('Installing WordPress plugin', {
         siteId: validatedRequest.siteId,
         pluginName: validatedRequest.plugin.name,
-        gitUrl: validatedRequest.plugin.gitUrl
+        gitUrl: validatedRequest.plugin.gitUrl,
+        subdirectory: validatedRequest.plugin.subdirectory || '(none)'
       });
 
       const plugin = await pluginManager.installPlugin(
@@ -591,13 +594,68 @@ export default function (context: LocalMain.AddonMainContext): void {
         pluginSlug: plugin.slug
       });
 
-      const result = await pluginManager.activatePlugin(site, plugin.slug);
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to activate plugin');
+      // Check if site is running - if not, start it temporarily
+      const siteStatus = siteProcessManager.getSiteStatus(site);
+      const wasRunning = siteStatus === 'running';
+      let needsStop = false;
+
+      if (!wasRunning) {
+        localLogger.info('Site not running, starting temporarily for plugin activation', {
+          siteId: validatedRequest.siteId,
+          currentStatus: siteStatus
+        });
+        try {
+          await siteProcessManager.start(site);
+          needsStop = true;
+        } catch (startError: any) {
+          throw new Error(`Failed to start site for activation: ${startError.message}`);
+        }
       }
 
-      // Update plugin status
-      await configManager.updatePluginStatus(validatedRequest.siteId, site.path, validatedRequest.pluginId, 'active');
+      // Always verify database is ready before WP-CLI operations (even if site was already running)
+      localLogger.info('Verifying database readiness...', {
+        siteId: validatedRequest.siteId,
+        siteWasRunning: wasRunning
+      });
+
+      try {
+        const dbReady = await siteDatabase.waitForDB(site);
+
+        if (!dbReady) {
+          throw new Error('Database failed to become ready');
+        }
+
+        localLogger.info('Database is ready for plugin activation', {
+          siteId: validatedRequest.siteId
+        });
+      } catch (dbError: any) {
+        throw new Error(`Database readiness check failed: ${dbError.message}`);
+      }
+
+      try {
+        const result = await pluginManager.activatePlugin(site, plugin.slug);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to activate plugin');
+        }
+
+        // Update plugin status
+        await configManager.updatePluginStatus(validatedRequest.siteId, site.path, validatedRequest.pluginId, 'active');
+      } finally {
+        // Stop site if we started it
+        if (needsStop) {
+          localLogger.info('Stopping site after plugin activation', {
+            siteId: validatedRequest.siteId
+          });
+          try {
+            await siteProcessManager.stop(site, { dumpDatabase: false });
+          } catch (stopError: any) {
+            localLogger.warn('Failed to stop site after activation', {
+              siteId: validatedRequest.siteId,
+              error: stopError.message
+            });
+          }
+        }
+      }
 
       localLogger.info('Successfully activated WordPress plugin', {
         siteId: validatedRequest.siteId,
@@ -647,13 +705,68 @@ export default function (context: LocalMain.AddonMainContext): void {
         pluginSlug: plugin.slug
       });
 
-      const result = await pluginManager.deactivatePlugin(site, plugin.slug);
-      if (!result.success) {
-        throw new Error(result.error || 'Failed to deactivate plugin');
+      // Check if site is running - if not, start it temporarily
+      const siteStatus = siteProcessManager.getSiteStatus(site);
+      const wasRunning = siteStatus === 'running';
+      let needsStop = false;
+
+      if (!wasRunning) {
+        localLogger.info('Site not running, starting temporarily for plugin deactivation', {
+          siteId: validatedRequest.siteId,
+          currentStatus: siteStatus
+        });
+        try {
+          await siteProcessManager.start(site);
+          needsStop = true;
+        } catch (startError: any) {
+          throw new Error(`Failed to start site for deactivation: ${startError.message}`);
+        }
       }
 
-      // Update plugin status
-      await configManager.updatePluginStatus(validatedRequest.siteId, site.path, validatedRequest.pluginId, 'inactive');
+      // Always verify database is ready before WP-CLI operations (even if site was already running)
+      localLogger.info('Verifying database readiness...', {
+        siteId: validatedRequest.siteId,
+        siteWasRunning: wasRunning
+      });
+
+      try {
+        const dbReady = await siteDatabase.waitForDB(site);
+
+        if (!dbReady) {
+          throw new Error('Database failed to become ready');
+        }
+
+        localLogger.info('Database is ready for plugin deactivation', {
+          siteId: validatedRequest.siteId
+        });
+      } catch (dbError: any) {
+        throw new Error(`Database readiness check failed: ${dbError.message}`);
+      }
+
+      try {
+        const result = await pluginManager.deactivatePlugin(site, plugin.slug);
+        if (!result.success) {
+          throw new Error(result.error || 'Failed to deactivate plugin');
+        }
+
+        // Update plugin status
+        await configManager.updatePluginStatus(validatedRequest.siteId, site.path, validatedRequest.pluginId, 'inactive');
+      } finally {
+        // Stop site if we started it
+        if (needsStop) {
+          localLogger.info('Stopping site after plugin deactivation', {
+            siteId: validatedRequest.siteId
+          });
+          try {
+            await siteProcessManager.stop(site, { dumpDatabase: false });
+          } catch (stopError: any) {
+            localLogger.warn('Failed to stop site after deactivation', {
+              siteId: validatedRequest.siteId,
+              error: stopError.message
+            });
+          }
+        }
+      }
 
       localLogger.info('Successfully deactivated WordPress plugin', {
         siteId: validatedRequest.siteId,

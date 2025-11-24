@@ -105,7 +105,9 @@ export class WordPressPluginManager {
       const cloneResult = await this.gitManager.cloneRepository({
         url: config.gitUrl,
         branch: config.branch,
-        targetPath: tempClonePath
+        targetPath: tempClonePath,
+        subdirectory: config.subdirectory,
+        requirePackageJson: false // WordPress plugins are PHP, not Node.js
       });
 
       if (!cloneResult.success) {

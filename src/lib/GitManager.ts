@@ -12,6 +12,7 @@ export interface GitCloneOptions {
   branch: string;
   targetPath: string;
   subdirectory?: string;
+  requirePackageJson?: boolean; // Default true for Node.js apps, false for WordPress plugins
   onProgress?: (event: GitProgressEvent) => void;
 }
 
@@ -143,19 +144,23 @@ export class GitManager {
         workingPath = subdirPath;
       }
 
-      // Verify package.json exists in working path (either root or subdirectory)
-      const packageJsonPath = path.join(workingPath, 'package.json');
-      if (!await fs.pathExists(packageJsonPath)) {
-        // Clean up the cloned directory
-        await fs.remove(targetPath);
-        const location = options.subdirectory
-          ? `subdirectory "${options.subdirectory}"`
-          : 'repository root';
-        return {
-          success: false,
-          path: '',
-          error: `No package.json found in ${location}`
-        };
+      // Verify package.json exists in working path (only for Node.js apps)
+      // WordPress plugins don't need package.json
+      const requirePackageJson = options.requirePackageJson ?? true; // Default to true for backward compatibility
+      if (requirePackageJson) {
+        const packageJsonPath = path.join(workingPath, 'package.json');
+        if (!await fs.pathExists(packageJsonPath)) {
+          // Clean up the cloned directory
+          await fs.remove(targetPath);
+          const location = options.subdirectory
+            ? `subdirectory "${options.subdirectory}"`
+            : 'repository root';
+          return {
+            success: false,
+            path: '',
+            error: `No package.json found in ${location}`
+          };
+        }
       }
 
       // Report completion

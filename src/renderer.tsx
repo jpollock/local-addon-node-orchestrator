@@ -388,12 +388,12 @@ export default function (context: any): void {
         }
       };
 
-      handleActivatePlugin = async (slug: string) => {
+      handleActivatePlugin = async (pluginId: string) => {
         try {
           const electron = context.electron || (window as any).electron;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:activate-plugin', {
             siteId: site.id,
-            slug
+            pluginId
           });
 
           if (response.success) {
@@ -407,12 +407,12 @@ export default function (context: any): void {
         }
       };
 
-      handleDeactivatePlugin = async (slug: string) => {
+      handleDeactivatePlugin = async (pluginId: string) => {
         try {
           const electron = context.electron || (window as any).electron;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:deactivate-plugin', {
             siteId: site.id,
-            slug
+            pluginId
           });
 
           if (response.success) {
@@ -426,7 +426,7 @@ export default function (context: any): void {
         }
       };
 
-      handleRemovePlugin = async (slug: string, name: string) => {
+      handleRemovePlugin = async (pluginId: string, name: string) => {
         if (!confirm(`Are you sure you want to remove "${name}"?`)) {
           return;
         }
@@ -435,7 +435,7 @@ export default function (context: any): void {
           const electron = context.electron || (window as any).electron;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:remove-plugin', {
             siteId: site.id,
-            slug
+            pluginId
           });
 
           if (response.success) {
@@ -765,15 +765,15 @@ export default function (context: any): void {
                   ),
                   React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
                     !plugin.active && React.createElement('button', {
-                      onClick: () => this.handleActivatePlugin(plugin.slug),
+                      onClick: () => this.handleActivatePlugin(plugin.id),
                       style: { padding: '6px 12px', backgroundColor: '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
                     }, 'Activate'),
                     plugin.active && React.createElement('button', {
-                      onClick: () => this.handleDeactivatePlugin(plugin.slug),
+                      onClick: () => this.handleDeactivatePlugin(plugin.id),
                       style: { padding: '6px 12px', backgroundColor: '#ff9800', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
                     }, 'Deactivate'),
                     React.createElement('button', {
-                      onClick: () => this.handleRemovePlugin(plugin.slug, plugin.name),
+                      onClick: () => this.handleRemovePlugin(plugin.id, plugin.name),
                       style: { padding: '6px 12px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
                     }, 'Remove')
                   )

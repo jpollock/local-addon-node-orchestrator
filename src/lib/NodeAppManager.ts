@@ -73,6 +73,7 @@ export class NodeAppManager {
         url: appConfig.gitUrl,
         branch: appConfig.branch || 'main',
         targetPath: appPath,
+        subdirectory: appConfig.subdirectory,
         onProgress
       });
 
@@ -80,8 +81,13 @@ export class NodeAppManager {
         throw new Error(cloneResult.error || 'Failed to clone repository');
       }
 
+      // Determine working directory (use subdirectory if specified)
+      const workingPath = appConfig.subdirectory
+        ? path.join(appPath, appConfig.subdirectory)
+        : appPath;
+
       // Step 2: Detect package manager
-      const packageManager = await this.detectPackageManager(appPath);
+      const packageManager = await this.detectPackageManager(workingPath);
 
       // Step 3: Install dependencies
       if (onProgress) {
@@ -93,7 +99,7 @@ export class NodeAppManager {
       }
 
       const installResult = await this.installDependencies(
-        appPath,
+        workingPath,
         appConfig.installCommand || `${packageManager} install`,
         onProgress
       );
@@ -114,7 +120,7 @@ export class NodeAppManager {
           });
         }
 
-        const buildResult = await this.buildApp(appPath, appConfig.buildCommand, onProgress);
+        const buildResult = await this.buildApp(workingPath, appConfig.buildCommand, onProgress);
 
         if (!buildResult.success) {
           // Clean up on build failure
@@ -276,7 +282,12 @@ export class NodeAppManager {
 
     try {
       // Get app directory
-      const appDir = app.path || path.join(sitePath, 'node-apps', appId);
+      let appDir = app.path || path.join(sitePath, 'node-apps', appId);
+
+      // If subdirectory is specified, use it as the working directory
+      if (app.subdirectory) {
+        appDir = path.join(appDir, app.subdirectory);
+      }
 
       // Verify directory exists
       if (!await fs.pathExists(appDir)) {

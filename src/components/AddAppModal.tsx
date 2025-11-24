@@ -20,6 +20,7 @@ interface AddAppModalState {
     name: string;
     gitUrl: string;
     branch: string;
+    subdirectory: string;
     installCommand: string;
     buildCommand: string;
     startCommand: string;
@@ -35,6 +36,7 @@ class AddAppModal extends React.Component<AddAppModalProps, AddAppModalState> {
       name: '',
       gitUrl: '',
       branch: 'main',
+      subdirectory: '',
       installCommand: 'npm install',
       buildCommand: '',
       startCommand: 'npm start',
@@ -93,8 +95,11 @@ class AddAppModal extends React.Component<AddAppModalProps, AddAppModalState> {
   handleSubmit = () => {
     if (!this.validate()) return;
 
+    const { subdirectory, ...rest } = this.state.formData;
+
     this.props.onAdd({
-      ...this.state.formData,
+      ...rest,
+      ...(subdirectory ? { subdirectory } : {}),
       env: {}
     });
 
@@ -104,6 +109,7 @@ class AddAppModal extends React.Component<AddAppModalProps, AddAppModalState> {
         name: '',
         gitUrl: '',
         branch: 'main',
+        subdirectory: '',
         installCommand: 'npm install',
         buildCommand: '',
         startCommand: 'npm start',
@@ -168,6 +174,19 @@ class AddAppModal extends React.Component<AddAppModalProps, AddAppModalState> {
             />
             <Text style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
               The branch to clone and track
+            </Text>
+          </div>
+
+          <div>
+            <Input
+              label="Subdirectory (Optional)"
+              value={formData.subdirectory}
+              onChange={(value) => this.handleChange('subdirectory', value)}
+              placeholder="packages/api"
+              error={errors.subdirectory}
+            />
+            <Text style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+              For monorepos: specify the path to the Node.js app (e.g., "node-app" or "packages/api")
             </Text>
           </div>
 
