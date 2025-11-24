@@ -347,8 +347,19 @@ export class NodeAppManager {
       throw new Error(`App ${appId} not found`);
     }
 
+    // Check if already running (status check)
     if (app.status === 'running') {
+      console.log(`[NodeAppManager] App ${app.name} is already running (status check)`);
       return app; // Already running
+    }
+
+    // Check if process already exists (defensive check for duplicate starts)
+    if (this.runningProcesses.has(appId)) {
+      console.log(`[NodeAppManager] App ${app.name} already has a running process (defensive check)`);
+      // Update status to match reality
+      app.status = 'running';
+      await this.configManager.saveApp(siteId, sitePath, app);
+      return app;
     }
 
     // Validate start command
