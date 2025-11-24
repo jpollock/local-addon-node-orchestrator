@@ -1,6 +1,6 @@
 /**
  * WordPressPluginManager - Manages WordPress plugin installation and lifecycle
- * Handles Git-based plugin installation with monorepo support
+ * Supports multiple installation sources: git, bundled, zip, and wp.org
  */
 
 import * as path from 'path';
@@ -9,33 +9,18 @@ import * as Local from '@getflywheel/local';
 import { v4 as uuidv4 } from 'uuid';
 import { GitManager } from '../GitManager';
 import { WpCliManager, WpCliResult } from './WpCliManager';
-
-export interface WordPressPlugin {
-  id: string;
-  name: string;
-  gitUrl: string;
-  branch: string;
-  subdirectory?: string;  // For monorepo plugins
-  slug: string;           // Directory name in wp-content/plugins
-  status: 'installing' | 'installed' | 'active' | 'inactive' | 'error';
-  installedPath: string;
-  version?: string;
-  error?: string;
-  createdAt: Date;
-  updatedAt?: Date;
-}
-
-export interface InstallPluginConfig {
-  name: string;
-  gitUrl: string;
-  branch: string;
-  subdirectory?: string;
-  slug: string;
-  autoActivate?: boolean;
-}
+import { ZipPluginInstaller } from './ZipPluginInstaller';
+import {
+  WordPressPlugin,
+  PluginConfig,
+  BundledPluginConfig,
+  GitPluginConfig,
+  ZipPluginConfig,
+  WpOrgPluginConfig
+} from '../../types';
 
 export interface PluginInstallProgress {
-  phase: 'cloning' | 'copying' | 'validating' | 'activating' | 'complete';
+  phase: 'cloning' | 'downloading' | 'copying' | 'validating' | 'activating' | 'complete';
   progress: number;
   message: string;
 }
@@ -47,47 +32,162 @@ export interface PluginInstallProgress {
 export class WordPressPluginManager {
   private gitManager: GitManager;
   private wpCliManager: WpCliManager;
+  private zipInstaller: ZipPluginInstaller;
 
   constructor(gitManager: GitManager, wpCliManager: WpCliManager) {
     this.gitManager = gitManager;
     this.wpCliManager = wpCliManager;
+    this.zipInstaller = new ZipPluginInstaller();
   }
 
   /**
-   * Install a WordPress plugin from a Git repository
+   * Install a WordPress plugin from any supported source
    *
    * @param site - The Local site object
-   * @param config - Plugin installation configuration
+   * @param config - Plugin installation configuration (discriminated by source)
    * @param onProgress - Optional progress callback
    * @returns Promise resolving to installed plugin
    */
   async installPlugin(
     site: Local.Site,
-    config: InstallPluginConfig,
+    config: PluginConfig & { name?: string },
+    onProgress?: (event: PluginInstallProgress) => void
+  ): Promise<WordPressPlugin> {
+    // Validate plugin slug
+    if (!this.isValidPluginSlug(config.slug)) {
+      throw new Error('Invalid plugin slug. Must contain only lowercase letters, numbers, hyphens, and underscores.');
+    }
+
+    // Get WordPress plugins directory
+    const pluginsDir = path.join(site.path, 'app', 'public', 'wp-content', 'plugins');
+    const pluginInstallPath = path.join(pluginsDir, config.slug);
+
+    // Check if plugin already exists
+    if (await fs.pathExists(pluginInstallPath)) {
+      throw new Error(`Plugin directory already exists: ${config.slug}`);
+    }
+
+    // Ensure plugins directory exists
+    await fs.ensureDir(pluginsDir);
+
+    // Dispatch to appropriate installation method based on source
+    let pluginResult: WordPressPlugin;
+
+    switch (config.source) {
+      case 'bundled':
+        pluginResult = await this.installFromBundled(site, config, pluginInstallPath, onProgress);
+        break;
+      case 'git':
+        pluginResult = await this.installFromGit(site, config, pluginInstallPath, onProgress);
+        break;
+      case 'zip':
+        pluginResult = await this.installFromZip(site, config, pluginInstallPath, onProgress);
+        break;
+      case 'wporg':
+        pluginResult = await this.installFromWpOrg(site, config, pluginInstallPath, onProgress);
+        break;
+      default:
+        throw new Error(`Unsupported plugin source: ${(config as any).source}`);
+    }
+
+    return pluginResult;
+  }
+
+  /**
+   * Install plugin from bundled path within a repository
+   */
+  private async installFromBundled(
+    site: Local.Site,
+    config: BundledPluginConfig & { name?: string },
+    targetPath: string,
+    onProgress?: (event: PluginInstallProgress) => void
+  ): Promise<WordPressPlugin> {
+    const pluginId = uuidv4();
+
+    try {
+      // The bundled path should be absolute (passed from BundledPluginDetector)
+      // If it's relative, it would be relative to the node app repository
+      const sourcePath = path.isAbsolute(config.path)
+        ? config.path
+        : config.path; // Will be resolved by caller
+
+      if (onProgress) {
+        onProgress({
+          phase: 'validating',
+          progress: 20,
+          message: 'Validating bundled plugin...'
+        });
+      }
+
+      // Validate source exists
+      if (!await fs.pathExists(sourcePath)) {
+        throw new Error(`Bundled plugin path not found: ${config.path}`);
+      }
+
+      // Validate plugin structure
+      const validationResult = await this.validatePluginStructure(sourcePath, config.slug);
+      if (!validationResult.valid) {
+        throw new Error(validationResult.error || 'Invalid plugin structure');
+      }
+
+      if (onProgress) {
+        onProgress({
+          phase: 'copying',
+          progress: 50,
+          message: 'Installing bundled plugin...'
+        });
+      }
+
+      // Copy plugin files
+      await fs.copy(sourcePath, targetPath, {
+        overwrite: false,
+        errorOnExist: true
+      });
+
+      // Activate if requested
+      const finalStatus = await this.handleActivation(site, config.slug, config.autoActivate, onProgress);
+
+      // Get plugin info
+      const pluginInfo = await this.wpCliManager.getPluginStatus(site, config.slug);
+
+      if (onProgress) {
+        onProgress({
+          phase: 'complete',
+          progress: 100,
+          message: 'Bundled plugin installed successfully'
+        });
+      }
+
+      return {
+        id: pluginId,
+        name: config.name || config.slug,
+        slug: config.slug,
+        source: 'bundled',
+        status: finalStatus,
+        installedPath: targetPath,
+        bundledPath: config.path,
+        version: pluginInfo?.version,
+        createdAt: new Date()
+      };
+
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  /**
+   * Install plugin from Git repository
+   */
+  private async installFromGit(
+    site: Local.Site,
+    config: GitPluginConfig & { name?: string },
+    targetPath: string,
     onProgress?: (event: PluginInstallProgress) => void
   ): Promise<WordPressPlugin> {
     const pluginId = uuidv4();
     let tempClonePath: string | null = null;
 
     try {
-      // Validate plugin slug
-      if (!this.isValidPluginSlug(config.slug)) {
-        throw new Error('Invalid plugin slug. Must contain only lowercase letters, numbers, hyphens, and underscores.');
-      }
-
-      // Get WordPress plugins directory
-      const pluginsDir = path.join(site.path, 'app', 'public', 'wp-content', 'plugins');
-      const pluginInstallPath = path.join(pluginsDir, config.slug);
-
-      // Check if plugin already exists
-      if (await fs.pathExists(pluginInstallPath)) {
-        throw new Error(`Plugin directory already exists: ${config.slug}`);
-      }
-
-      // Ensure plugins directory exists
-      await fs.ensureDir(pluginsDir);
-
-      // Step 1: Clone repository to temporary directory
       if (onProgress) {
         onProgress({
           phase: 'cloning',
@@ -103,7 +203,7 @@ export class WordPressPluginManager {
 
       // Clone the repository
       const cloneResult = await this.gitManager.cloneRepository({
-        url: config.gitUrl,
+        url: config.url,
         branch: config.branch,
         targetPath: tempClonePath,
         subdirectory: config.subdirectory,
@@ -114,7 +214,7 @@ export class WordPressPluginManager {
         throw new Error(cloneResult.error || 'Failed to clone plugin repository');
       }
 
-      // Step 2: Determine source directory (handle monorepo subdirectory)
+      // Determine source directory (handle monorepo subdirectory)
       let sourceDir = tempClonePath;
       if (config.subdirectory) {
         sourceDir = path.join(tempClonePath, config.subdirectory);
@@ -132,7 +232,7 @@ export class WordPressPluginManager {
         }
       }
 
-      // Step 3: Validate plugin structure
+      // Validate plugin structure
       if (onProgress) {
         onProgress({
           phase: 'validating',
@@ -146,7 +246,7 @@ export class WordPressPluginManager {
         throw new Error(validationResult.error || 'Invalid plugin structure');
       }
 
-      // Step 4: Copy plugin files to wp-content/plugins
+      // Copy plugin files
       if (onProgress) {
         onProgress({
           phase: 'copying',
@@ -155,37 +255,19 @@ export class WordPressPluginManager {
         });
       }
 
-      await fs.copy(sourceDir, pluginInstallPath, {
+      await fs.copy(sourceDir, targetPath, {
         overwrite: false,
         errorOnExist: true
       });
 
-      // Step 5: Activate plugin if requested
-      let finalStatus: WordPressPlugin['status'] = 'installed';
-      if (config.autoActivate) {
-        if (onProgress) {
-          onProgress({
-            phase: 'activating',
-            progress: 80,
-            message: 'Activating plugin...'
-          });
-        }
-
-        const activateResult = await this.wpCliManager.activatePlugin(site, config.slug);
-        if (activateResult.success) {
-          finalStatus = 'active';
-        } else {
-          console.warn(`Plugin installed but activation failed: ${activateResult.error}`);
-        }
-      }
-
       // Clean up temporary directory
-      if (tempClonePath) {
-        await fs.remove(tempClonePath);
-        tempClonePath = null;
-      }
+      await fs.remove(tempClonePath);
+      tempClonePath = null;
 
-      // Step 6: Get plugin info from WP-CLI
+      // Activate if requested
+      const finalStatus = await this.handleActivation(site, config.slug, config.autoActivate, onProgress);
+
+      // Get plugin info
       const pluginInfo = await this.wpCliManager.getPluginStatus(site, config.slug);
 
       if (onProgress) {
@@ -196,21 +278,19 @@ export class WordPressPluginManager {
         });
       }
 
-      // Create plugin object
-      const plugin: WordPressPlugin = {
+      return {
         id: pluginId,
-        name: config.name,
-        gitUrl: config.gitUrl,
+        name: config.name || config.slug,
+        slug: config.slug,
+        source: 'git',
+        status: finalStatus,
+        installedPath: targetPath,
+        gitUrl: config.url,
         branch: config.branch,
         subdirectory: config.subdirectory,
-        slug: config.slug,
-        status: finalStatus,
-        installedPath: pluginInstallPath,
         version: pluginInfo?.version,
         createdAt: new Date()
       };
-
-      return plugin;
 
     } catch (error: any) {
       // Clean up on error
@@ -221,9 +301,192 @@ export class WordPressPluginManager {
           // Ignore cleanup errors
         }
       }
-
-      // Re-throw error after cleanup
       throw error;
+    }
+  }
+
+  /**
+   * Install plugin from zip file (local or remote)
+   */
+  private async installFromZip(
+    site: Local.Site,
+    config: ZipPluginConfig & { name?: string },
+    targetPath: string,
+    onProgress?: (event: PluginInstallProgress) => void
+  ): Promise<WordPressPlugin> {
+    const pluginId = uuidv4();
+
+    try {
+      if (onProgress) {
+        onProgress({
+          phase: 'downloading',
+          progress: 0,
+          message: 'Downloading plugin zip...'
+        });
+      }
+
+      // Use ZipPluginInstaller to handle download/extraction
+      const result = await this.zipInstaller.installFromZip(
+        config.url,
+        targetPath,
+        (zipProgress) => {
+          if (onProgress && zipProgress.percentage) {
+            onProgress({
+              phase: 'downloading',
+              progress: Math.round(zipProgress.percentage * 0.7), // 0-70% for download
+              message: `Downloading... ${zipProgress.percentage}%`
+            });
+          }
+        }
+      );
+
+      if (!result.success) {
+        throw new Error(result.error || 'Failed to install from zip');
+      }
+
+      // Validate plugin structure
+      if (onProgress) {
+        onProgress({
+          phase: 'validating',
+          progress: 75,
+          message: 'Validating plugin...'
+        });
+      }
+
+      const validationResult = await this.validatePluginStructure(targetPath, config.slug);
+      if (!validationResult.valid) {
+        // Clean up invalid plugin
+        await fs.remove(targetPath);
+        throw new Error(validationResult.error || 'Invalid plugin structure');
+      }
+
+      // Activate if requested
+      const finalStatus = await this.handleActivation(site, config.slug, config.autoActivate, onProgress);
+
+      // Get plugin info
+      const pluginInfo = await this.wpCliManager.getPluginStatus(site, config.slug);
+
+      if (onProgress) {
+        onProgress({
+          phase: 'complete',
+          progress: 100,
+          message: 'Plugin installed from zip successfully'
+        });
+      }
+
+      return {
+        id: pluginId,
+        name: config.name || config.slug,
+        slug: config.slug,
+        source: 'zip',
+        status: finalStatus,
+        installedPath: targetPath,
+        zipUrl: config.url,
+        version: pluginInfo?.version,
+        createdAt: new Date()
+      };
+
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  /**
+   * Install plugin from WordPress.org
+   */
+  private async installFromWpOrg(
+    site: Local.Site,
+    config: WpOrgPluginConfig & { name?: string },
+    targetPath: string,
+    onProgress?: (event: PluginInstallProgress) => void
+  ): Promise<WordPressPlugin> {
+    const pluginId = uuidv4();
+
+    try {
+      if (onProgress) {
+        onProgress({
+          phase: 'downloading',
+          progress: 0,
+          message: 'Installing from WordPress.org...'
+        });
+      }
+
+      // Use WP-CLI to install plugin
+      const installCommand = config.version
+        ? `plugin install ${config.slug} --version=${config.version}`
+        : `plugin install ${config.slug}`;
+
+      const installResult = await this.wpCliManager.runCommand(site, installCommand);
+
+      if (!installResult.success) {
+        throw new Error(installResult.error || 'Failed to install from WordPress.org');
+      }
+
+      if (onProgress) {
+        onProgress({
+          phase: 'validating',
+          progress: 60,
+          message: 'Plugin downloaded from WordPress.org'
+        });
+      }
+
+      // Activate if requested
+      const finalStatus = await this.handleActivation(site, config.slug, config.autoActivate, onProgress);
+
+      // Get plugin info
+      const pluginInfo = await this.wpCliManager.getPluginStatus(site, config.slug);
+
+      if (onProgress) {
+        onProgress({
+          phase: 'complete',
+          progress: 100,
+          message: 'Plugin installed from WordPress.org'
+        });
+      }
+
+      return {
+        id: pluginId,
+        name: config.name || config.slug,
+        slug: config.slug,
+        source: 'wporg',
+        status: finalStatus,
+        installedPath: targetPath,
+        version: pluginInfo?.version || config.version,
+        createdAt: new Date()
+      };
+
+    } catch (error: any) {
+      throw error;
+    }
+  }
+
+  /**
+   * Handle plugin activation if requested
+   */
+  private async handleActivation(
+    site: Local.Site,
+    slug: string,
+    autoActivate: boolean | undefined,
+    onProgress?: (event: PluginInstallProgress) => void
+  ): Promise<WordPressPlugin['status']> {
+    if (!autoActivate) {
+      return 'installed';
+    }
+
+    if (onProgress) {
+      onProgress({
+        phase: 'activating',
+        progress: 90,
+        message: 'Activating plugin...'
+      });
+    }
+
+    const activateResult = await this.wpCliManager.activatePlugin(site, slug);
+    if (activateResult.success) {
+      return 'active';
+    } else {
+      console.warn(`Plugin installed but activation failed: ${activateResult.error}`);
+      return 'installed';
     }
   }
 
@@ -289,12 +552,13 @@ export class WordPressPluginManager {
   }
 
   /**
-   * Update a plugin from Git repository
-   * Removes the old version and reinstalls from the latest commit
+   * Update a plugin (remove and reinstall)
+   * Note: Only works for plugins with stored installation config
    */
   async updatePlugin(
     site: Local.Site,
     plugin: WordPressPlugin,
+    config: PluginConfig & { name?: string },
     onProgress?: (event: PluginInstallProgress) => void
   ): Promise<WordPressPlugin> {
     try {
@@ -308,15 +572,11 @@ export class WordPressPluginManager {
         throw new Error(removeResult.error);
       }
 
-      // Reinstall plugin
+      // Reinstall plugin with same config but preserve active state
       const updatedPlugin = await this.installPlugin(
         site,
         {
-          name: plugin.name,
-          gitUrl: plugin.gitUrl,
-          branch: plugin.branch,
-          subdirectory: plugin.subdirectory,
-          slug: plugin.slug,
+          ...config,
           autoActivate: wasActive
         },
         onProgress
@@ -442,7 +702,7 @@ export class WordPressPluginManager {
     // Remove user paths
     message = message.replace(/\/Users\/[^/\s]+/g, '[USER]');
     message = message.replace(/\/home\/[^/\s]+/g, '[USER]');
-    message = message.replace(/C:\\Users\\[^\\s]+/g, '[USER]');
+    message = message.replace(/C:\\Users\\[^\\\s]+/g, '[USER]');
 
     return message;
   }
