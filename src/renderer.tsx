@@ -626,6 +626,14 @@ export default function (context: any): void {
                             style: { color: '#007cba', textDecoration: 'none', fontWeight: 'bold' }
                           }, `${app.port} (click to open)`)
                         : React.createElement('span', { style: { fontWeight: 'bold' } }, app.port)
+                    ),
+                    app.bundledPlugins && app.bundledPlugins.length > 0 && React.createElement('div', { style: { marginTop: '10px', paddingTop: '10px', borderTop: '1px solid #e0e0e0' } },
+                      React.createElement('div', { style: { fontSize: '12px', fontWeight: 'bold', color: '#666', marginBottom: '5px' } },
+                        `Bundled WordPress Plugins (${app.bundledPlugins.length})`
+                      ),
+                      React.createElement('div', { style: { fontSize: '11px', color: '#888' } },
+                        `${app.bundledPlugins.length} plugin${app.bundledPlugins.length !== 1 ? 's' : ''} auto-installed with this app`
+                      )
                     )
                   ),
                   React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
