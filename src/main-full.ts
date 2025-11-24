@@ -48,7 +48,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       const autoStartApps = apps.filter(app => app.autoStart);
 
       for (const app of autoStartApps) {
-        await appManager.startApp(site.id, site.path, app.id);
+        await appManager.startApp(site.id, site.path, app.id, site);
       }
 
       localLogger.log('info', `Started ${autoStartApps.length} Node.js apps for ${site.name}`);
