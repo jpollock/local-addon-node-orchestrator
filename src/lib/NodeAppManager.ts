@@ -15,7 +15,7 @@ import { ConfigManager } from './ConfigManager';
 import { PortManager } from './PortManager';
 import { NpmManager } from './NpmManager';
 import { WordPressEnvManager } from './wordpress/WordPressEnvManager';
-import { WordPressPluginManager, PluginInstallProgress } from './wordpress/WordPressPluginManager';
+import { WordPressPluginManager } from './wordpress/WordPressPluginManager';
 import { BundledPluginDetector } from './wordpress/BundledPluginDetector';
 import { validateInstallCommand, validateStartCommand, validateBuildCommand } from '../security/validation';
 

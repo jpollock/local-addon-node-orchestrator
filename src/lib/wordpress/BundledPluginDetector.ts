@@ -78,8 +78,9 @@ export class BundledPluginDetector {
       // Validate with Zod schema
       const parseResult = NodeOrchestratorConfigSchema.safeParse(configJson);
       if (!parseResult.success) {
+        const errorMessages = parseResult.error.issues.map((e: any) => e.message).join(', ');
         throw new Error(
-          `Invalid ${CONFIG_FILE_NAME}: ${parseResult.error.errors.map(e => e.message).join(', ')}`
+          `Invalid ${CONFIG_FILE_NAME}: ${errorMessages}`
         );
       }
 

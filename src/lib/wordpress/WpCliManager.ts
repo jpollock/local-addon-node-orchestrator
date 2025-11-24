@@ -204,6 +204,28 @@ export class WpCliManager {
   }
 
   /**
+   * Run a WP-CLI command string (convenience wrapper for execute)
+   * Parses command string and delegates to execute method
+   *
+   * @param site - The Local site object
+   * @param commandString - Full command string (e.g., "plugin install wp-graphql")
+   * @returns Promise resolving to command result
+   */
+  async runCommand(site: Local.Site, commandString: string): Promise<WpCliResult> {
+    // Parse command string into command and args
+    const parts = commandString.trim().split(/\s+/);
+    if (parts.length === 0) {
+      return {
+        success: false,
+        error: 'Empty command string'
+      };
+    }
+
+    const [command, ...args] = parts;
+    return await this.execute(site, command, args);
+  }
+
+  /**
    * Spawn WP-CLI process and capture output
    */
   private spawnWpCliProcess(wpPath: string, args: string[]): Promise<WpCliResult> {

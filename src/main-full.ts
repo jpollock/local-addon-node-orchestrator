@@ -525,8 +525,8 @@ export default function (context: LocalMain.AddonMainContext): void {
       localLogger.info('Installing WordPress plugin', {
         siteId: validatedRequest.siteId,
         pluginName: validatedRequest.plugin.name,
-        gitUrl: validatedRequest.plugin.gitUrl,
-        subdirectory: validatedRequest.plugin.subdirectory || '(none)'
+        pluginSlug: validatedRequest.plugin.slug,
+        source: validatedRequest.plugin.source
       });
 
       const plugin = await pluginManager.installPlugin(

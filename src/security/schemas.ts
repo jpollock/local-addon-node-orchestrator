@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod';
+import { PluginConfigSchema } from '../lib/schemas/nodeOrchestratorConfig';
 
 /**
  * Site ID validation - Local uses string site IDs (not UUIDs)
@@ -232,41 +233,39 @@ const pluginNameSchema = z
 /**
  * Plugin slug validation - SECURITY CRITICAL
  * WordPress plugin slugs must be lowercase alphanumeric with hyphens and underscores only
+ *
+ * NOTE: This schema is currently unused as validation is now handled by PluginConfigSchema
+ * Kept for potential future use or backward compatibility
  */
-const pluginSlugSchema = z
-  .string()
-  .min(1, 'Plugin slug is required')
-  .max(200, 'Plugin slug must be less than 200 characters')
-  .regex(/^[a-z0-9_-]+$/, 'Plugin slug must contain only lowercase letters, numbers, hyphens, and underscores')
-  .refine(
-    (slug) => {
-      // Block shell metacharacters
-      const shellMetaChars = /[;&|`$()<>\\'"]/;
-      if (shellMetaChars.test(slug)) {
-        return false;
-      }
-      // Block path traversal patterns
-      if (slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
-        return false;
-      }
-      return true;
-    },
-    'Plugin slug contains invalid or dangerous characters'
-  );
+// const pluginSlugSchema = z
+//   .string()
+//   .min(1, 'Plugin slug is required')
+//   .max(200, 'Plugin slug must be less than 200 characters')
+//   .regex(/^[a-z0-9_-]+$/, 'Plugin slug must contain only lowercase letters, numbers, hyphens, and underscores')
+//   .refine(
+//     (slug) => {
+//       // Block shell metacharacters
+//       const shellMetaChars = /[;&|`$()<>\\'"]/;
+//       if (shellMetaChars.test(slug)) {
+//         return false;
+//       }
+//       // Block path traversal patterns
+//       if (slug.includes('..') || slug.includes('/') || slug.includes('\\')) {
+//         return false;
+//       }
+//       return true;
+//     },
+//     'Plugin slug contains invalid or dangerous characters'
+//   );
 
 /**
  * Schema for installing a WordPress plugin
  */
 export const InstallPluginRequestSchema = z.object({
   siteId: siteIdSchema,
-  plugin: z.object({
-    name: pluginNameSchema,
-    gitUrl: gitUrlSchema,
-    branch: branchSchema,
-    subdirectory: subdirectorySchema,
-    slug: pluginSlugSchema,
-    autoActivate: z.boolean().optional().default(false)
-  })
+  plugin: PluginConfigSchema.and(z.object({
+    name: pluginNameSchema.optional()
+  }))
 });
 
 /**
