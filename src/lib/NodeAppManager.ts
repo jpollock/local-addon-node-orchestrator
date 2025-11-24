@@ -12,7 +12,6 @@ import treeKill = require('tree-kill');
 import { NodeApp, AddAppRequest } from '../types';
 import { GitManager, GitProgressEvent } from './GitManager';
 import { ConfigManager } from './ConfigManager';
-import { PortManager } from './PortManager';
 import { NpmManager } from './NpmManager';
 import { WordPressEnvManager } from './wordpress/WordPressEnvManager';
 import { WordPressPluginManager } from './wordpress/WordPressPluginManager';
@@ -28,7 +27,7 @@ export interface InstallProgress {
 export class NodeAppManager {
   private configManager: ConfigManager;
   private gitManager: GitManager;
-  private portManager: PortManager;
+  private portsService: any; // Local.Services.Ports from service container
   private npmManager: NpmManager;
   private pluginManager: WordPressPluginManager;
   private pluginDetector: BundledPluginDetector;
@@ -37,12 +36,12 @@ export class NodeAppManager {
   constructor(
     configManager: ConfigManager,
     gitManager: GitManager,
-    portManager: PortManager,
+    portsService: any, // Local.Services.Ports from service container
     pluginManager: WordPressPluginManager
   ) {
     this.configManager = configManager;
     this.gitManager = gitManager;
-    this.portManager = portManager;
+    this.portsService = portsService;
     this.npmManager = new NpmManager();
     this.pluginManager = pluginManager;
     this.pluginDetector = new BundledPluginDetector();
@@ -213,9 +212,9 @@ export class NodeAppManager {
         // Continue with app installation even if plugins fail
       }
 
-      // Step 6: Allocate port
-      const port = await this.portManager.allocatePort(site.path, appId);
-      console.log(`[NodeAppManager] Allocated port ${port} for app ${appId}`);
+      // Step 6: Allocate port using Local's Ports service
+      const port = await this.portsService.getAvailablePort();
+      console.log(`[NodeAppManager] Allocated port ${port} for app ${appId} via Local's Ports service`);
 
       // Step 7: Create app configuration
       const app: NodeApp = {
@@ -322,12 +321,9 @@ export class NodeAppManager {
       await fs.remove(app.path);
     }
 
-    // Release port allocation
-    await this.portManager.releasePort(sitePath, appId);
-    console.log(`[NodeAppManager] Released port for app ${appId}`);
-
-    // Remove from config
+    // Remove from config (Local's Ports service handles port cleanup)
     await this.configManager.removeApp(siteId, sitePath, appId);
+    console.log(`[NodeAppManager] Removed app ${appId}`);
   }
 
   /**

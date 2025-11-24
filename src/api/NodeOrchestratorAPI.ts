@@ -4,11 +4,11 @@
  */
 
 import * as Local from '@getflywheel/local';
+import * as LocalMain from '@getflywheel/local/main';
 import { NodeAppManager, InstallProgress } from '../lib/NodeAppManager';
 import { WordPressPluginManager, PluginInstallProgress } from '../lib/wordpress/WordPressPluginManager';
 import { ConfigManager } from '../lib/ConfigManager';
 import { GitManager } from '../lib/GitManager';
-import { PortManager } from '../lib/PortManager';
 import { WpCliManager } from '../lib/wordpress/WpCliManager';
 import {
   NodeApp,
@@ -94,16 +94,18 @@ export class NodeOrchestratorAPI {
   constructor(site: Local.Site) {
     this.site = site;
 
+    // Get Local's Ports service
+    const { ports } = LocalMain.getServiceContainer().cradle;
+
     // Initialize managers (same pattern as main-full.ts)
     this.configManager = new ConfigManager();
     const gitManager = new GitManager();
-    const portManager = new PortManager();
     const wpCliManager = new WpCliManager();
     this.pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
     this.appManager = new NodeAppManager(
       this.configManager,
       gitManager,
-      portManager,
+      ports,
       this.pluginManager
     );
   }

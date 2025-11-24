@@ -4,7 +4,6 @@ import { ipcMain } from 'electron';
 import { GitManager } from './lib/GitManager';
 import { NodeAppManager } from './lib/NodeAppManager';
 import { ConfigManager } from './lib/ConfigManager';
-import { PortManager } from './lib/PortManager';
 import { WpCliManager } from './lib/wordpress/WpCliManager';
 import { WordPressPluginManager } from './lib/wordpress/WordPressPluginManager';
 import {
@@ -26,7 +25,7 @@ import {
 import { logAndSanitizeError } from './security/errors';
 
 export default function (context: LocalMain.AddonMainContext): void {
-  const { localLogger, siteData, siteProcessManager, siteDatabase } = LocalMain.getServiceContainer().cradle;
+  const { localLogger, siteData, siteProcessManager, siteDatabase, ports } = LocalMain.getServiceContainer().cradle;
 
   console.log('[Node Orchestrator] Main addon loading...');
   console.log('[Node Orchestrator] Available hooks:', Object.keys(context.hooks || {}));
@@ -34,10 +33,9 @@ export default function (context: LocalMain.AddonMainContext): void {
   // Initialize managers
   const configManager = new ConfigManager();
   const gitManager = new GitManager();
-  const portManager = new PortManager();
   const wpCliManager = new WpCliManager();
   const pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
-  const appManager = new NodeAppManager(configManager, gitManager, portManager, pluginManager);
+  const appManager = new NodeAppManager(configManager, gitManager, ports, pluginManager);
 
   console.log('[Node Orchestrator] Managers initialized');
 
