@@ -35,9 +35,9 @@ export default function (context: LocalMain.AddonMainContext): void {
   const configManager = new ConfigManager();
   const gitManager = new GitManager();
   const portManager = new PortManager();
-  const appManager = new NodeAppManager(configManager, gitManager, portManager);
   const wpCliManager = new WpCliManager();
   const pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
+  const appManager = new NodeAppManager(configManager, gitManager, portManager, pluginManager);
 
   console.log('[Node Orchestrator] Managers initialized');
 

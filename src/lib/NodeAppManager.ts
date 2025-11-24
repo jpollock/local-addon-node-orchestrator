@@ -15,10 +15,12 @@ import { ConfigManager } from './ConfigManager';
 import { PortManager } from './PortManager';
 import { NpmManager } from './NpmManager';
 import { WordPressEnvManager } from './wordpress/WordPressEnvManager';
+import { WordPressPluginManager, PluginInstallProgress } from './wordpress/WordPressPluginManager';
+import { BundledPluginDetector } from './wordpress/BundledPluginDetector';
 import { validateInstallCommand, validateStartCommand, validateBuildCommand } from '../security/validation';
 
 export interface InstallProgress {
-  phase: 'detecting' | 'installing' | 'building' | 'complete';
+  phase: 'detecting' | 'installing' | 'building' | 'installing-plugins' | 'complete';
   progress: number;
   message: string;
 }
@@ -28,13 +30,22 @@ export class NodeAppManager {
   private gitManager: GitManager;
   private portManager: PortManager;
   private npmManager: NpmManager;
+  private pluginManager: WordPressPluginManager;
+  private pluginDetector: BundledPluginDetector;
   private runningProcesses: Map<string, ChildProcess> = new Map();
 
-  constructor(configManager: ConfigManager, gitManager: GitManager, portManager: PortManager) {
+  constructor(
+    configManager: ConfigManager,
+    gitManager: GitManager,
+    portManager: PortManager,
+    pluginManager: WordPressPluginManager
+  ) {
     this.configManager = configManager;
     this.gitManager = gitManager;
     this.portManager = portManager;
     this.npmManager = new NpmManager();
+    this.pluginManager = pluginManager;
+    this.pluginDetector = new BundledPluginDetector();
   }
 
   /**
@@ -115,7 +126,7 @@ export class NodeAppManager {
         if (onProgress) {
           onProgress({
             phase: 'building',
-            progress: 70,
+            progress: 60,
             message: 'Building application...'
           });
         }
@@ -129,11 +140,74 @@ export class NodeAppManager {
         }
       }
 
-      // Step 5: Allocate port
+      // Step 5: Detect and install bundled WordPress plugins
+      const bundledPluginIds: string[] = [];
+      try {
+        const detectionResult = await this.pluginDetector.detectPlugins(appPath);
+
+        if (detectionResult.plugins.length > 0) {
+          if (onProgress) {
+            onProgress({
+              phase: 'installing-plugins',
+              progress: 70,
+              message: `Detected ${detectionResult.plugins.length} bundled plugin(s)...`
+            });
+          }
+
+          console.log(`[NodeAppManager] Detected ${detectionResult.plugins.length} bundled plugin(s) from ${detectionResult.source}`);
+
+          // Install each detected plugin
+          for (let i = 0; i < detectionResult.plugins.length; i++) {
+            const pluginConfig = detectionResult.plugins[i];
+
+            if (onProgress) {
+              onProgress({
+                phase: 'installing-plugins',
+                progress: 70 + (i / detectionResult.plugins.length) * 15,
+                message: `Installing plugin: ${pluginConfig.slug}...`
+              });
+            }
+
+            // For bundled plugins, resolve the path relative to the cloned repo
+            if (pluginConfig.source === 'bundled') {
+              pluginConfig.path = path.join(appPath, pluginConfig.path);
+            }
+
+            // Install the plugin
+            const installedPlugin = await this.pluginManager.installPlugin(
+              site,
+              {
+                ...pluginConfig,
+                name: pluginConfig.slug // Use slug as name if not specified
+              },
+              (pluginProgress) => {
+                // Forward plugin installation progress
+                if (onProgress) {
+                  onProgress({
+                    phase: 'installing-plugins',
+                    progress: 70 + (i / detectionResult.plugins.length) * 15,
+                    message: pluginProgress.message
+                  });
+                }
+              }
+            );
+
+            bundledPluginIds.push(installedPlugin.id);
+            console.log(`[NodeAppManager] Installed bundled plugin: ${installedPlugin.slug} (${installedPlugin.id})`);
+          }
+        }
+      } catch (pluginError: any) {
+        // Log plugin installation errors but don't fail the entire app installation
+        console.error(`[NodeAppManager] Failed to install bundled plugins: ${pluginError.message}`);
+        console.error(pluginError);
+        // Continue with app installation even if plugins fail
+      }
+
+      // Step 6: Allocate port
       const port = await this.portManager.allocatePort(site.path, appId);
       console.log(`[NodeAppManager] Allocated port ${port} for app ${appId}`);
 
-      // Step 6: Create app configuration
+      // Step 7: Create app configuration
       const app: NodeApp = {
         id: appId,
         name: appConfig.name,
@@ -148,6 +222,7 @@ export class NodeAppManager {
         status: 'stopped',
         autoStart: appConfig.autoStart ?? false,
         injectWpEnv: appConfig.injectWpEnv ?? true, // Default to true - auto-inject WP env vars
+        bundledPlugins: bundledPluginIds.length > 0 ? bundledPluginIds : undefined,
         path: appPath,
         port,
         createdAt: new Date(),
