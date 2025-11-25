@@ -31,31 +31,16 @@ export default function (context: any): void {
           startCommand: 'npm start',
           autoStart: false,
           env: {}
-        },
-        // WordPress Plugin state
-        plugins: [],
-        showPluginForm: false,
-        loadingPlugin: false,
-        pluginFormData: {
-          name: '',
-          gitUrl: '',
-          branch: 'main',
-          subdirectory: '',
-          slug: '',
-          autoActivate: true
-        },
-        pluginTestResult: ''
+        }
       };
 
       refreshInterval: any = null;
 
       componentDidMount() {
         this.loadApps();
-        this.loadPlugins();
         // Auto-refresh every 2 seconds to catch status updates
         this.refreshInterval = setInterval(() => {
           this.loadApps();
-          this.loadPlugins();
         }, 2000);
       }
 
@@ -327,142 +312,6 @@ export default function (context: any): void {
         return env;
       };
 
-      // WordPress Plugin Management Methods
-
-      loadPlugins = async () => {
-        try {
-          const electron = context.electron || (window as any).electron;
-          const response = await electron.ipcRenderer.invoke('node-orchestrator:get-plugins', {
-            siteId: site.id
-          });
-
-          if (response.success) {
-            this.setState({ plugins: response.plugins || [] });
-          }
-        } catch (error: any) {
-          console.error('[NodeOrchestrator] Failed to load plugins:', error);
-        }
-      };
-
-      handlePluginInputChange = (field: string, value: any) => {
-        this.setState({
-          pluginFormData: {
-            ...this.state.pluginFormData,
-            [field]: value
-          }
-        });
-      };
-
-      handleAddPlugin = async (e: any) => {
-        e.preventDefault();
-        this.setState({ loadingPlugin: true, pluginTestResult: '' });
-
-        try {
-          const electron = context.electron || (window as any).electron;
-          const response = await electron.ipcRenderer.invoke('node-orchestrator:install-plugin', {
-            siteId: site.id,
-            plugin: this.state.pluginFormData
-          });
-
-          if (response.success) {
-            this.setState({
-              pluginTestResult: `✅ Plugin "${response.plugin.name}" installed successfully!`,
-              showPluginForm: false,
-              pluginFormData: {
-                name: '',
-                gitUrl: '',
-                branch: 'main',
-                subdirectory: '',
-                slug: '',
-                autoActivate: true
-              }
-            });
-            await this.loadPlugins();
-          } else {
-            this.setState({ pluginTestResult: `❌ Failed to install plugin: ${response.error}` });
-          }
-        } catch (error: any) {
-          this.setState({ pluginTestResult: `❌ Error: ${error.message}` });
-        } finally {
-          this.setState({ loadingPlugin: false });
-        }
-      };
-
-      handleActivatePlugin = async (pluginId: string) => {
-        try {
-          const electron = context.electron || (window as any).electron;
-          const response = await electron.ipcRenderer.invoke('node-orchestrator:activate-plugin', {
-            siteId: site.id,
-            pluginId
-          });
-
-          if (response.success) {
-            this.setState({ pluginTestResult: `✅ Plugin activated successfully!` });
-            await this.loadPlugins();
-          } else {
-            this.setState({ pluginTestResult: `❌ Failed to activate: ${response.error}` });
-          }
-        } catch (error: any) {
-          this.setState({ pluginTestResult: `❌ Error: ${error.message}` });
-        }
-      };
-
-      handleDeactivatePlugin = async (pluginId: string) => {
-        try {
-          const electron = context.electron || (window as any).electron;
-          const response = await electron.ipcRenderer.invoke('node-orchestrator:deactivate-plugin', {
-            siteId: site.id,
-            pluginId
-          });
-
-          if (response.success) {
-            this.setState({ pluginTestResult: `✅ Plugin deactivated successfully!` });
-            await this.loadPlugins();
-          } else {
-            this.setState({ pluginTestResult: `❌ Failed to deactivate: ${response.error}` });
-          }
-        } catch (error: any) {
-          this.setState({ pluginTestResult: `❌ Error: ${error.message}` });
-        }
-      };
-
-      handleRemovePlugin = async (pluginId: string, name: string) => {
-        if (!confirm(`Are you sure you want to remove "${name}"?`)) {
-          return;
-        }
-
-        try {
-          const electron = context.electron || (window as any).electron;
-          const response = await electron.ipcRenderer.invoke('node-orchestrator:remove-plugin', {
-            siteId: site.id,
-            pluginId
-          });
-
-          if (response.success) {
-            this.setState({ pluginTestResult: `✅ Plugin removed successfully!` });
-            await this.loadPlugins();
-          } else {
-            this.setState({ pluginTestResult: `❌ Failed to remove: ${response.error}` });
-          }
-        } catch (error: any) {
-          this.setState({ pluginTestResult: `❌ Error: ${error.message}` });
-        }
-      };
-
-      handleCancelPluginForm = () => {
-        this.setState({
-          showPluginForm: false,
-          pluginFormData: {
-            name: '',
-            gitUrl: '',
-            branch: 'main',
-            subdirectory: '',
-            slug: '',
-            autoActivate: true
-          }
-        });
-      };
-
       render() {
         const { name, domain } = this.props.site;
         const { showForm, testResult } = this.state;
@@ -492,24 +341,7 @@ export default function (context: any): void {
             style: { marginBottom: '15px', padding: '10px', backgroundColor: testResult.includes('✅') ? '#d7f8d7' : '#f8d7da', borderRadius: '4px', fontSize: '14px' }
           }, testResult),
           showForm && this.renderForm(),
-          this.renderAppsList(),
-          // WordPress Plugins Section
-          React.createElement('div', { style: { marginTop: '30px', borderTop: '2px solid #ddd', paddingTop: '20px' } },
-            React.createElement('h3', null, '🔌 WordPress Plugins'),
-            React.createElement(
-              'div',
-              { style: { display: 'flex', gap: '10px', marginBottom: '15px' } },
-              React.createElement('button', {
-                onClick: () => this.state.showPluginForm ? this.handleCancelPluginForm() : this.setState({ showPluginForm: true }),
-                style: { padding: '8px 16px', backgroundColor: '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }
-              }, this.state.showPluginForm ? 'Cancel' : 'Add WordPress Plugin')
-            ),
-            this.state.pluginTestResult && React.createElement('div', {
-              style: { marginBottom: '15px', padding: '10px', backgroundColor: this.state.pluginTestResult.includes('✅') ? '#d7f8d7' : '#f8d7da', borderRadius: '4px', fontSize: '14px' }
-            }, this.state.pluginTestResult),
-            this.state.showPluginForm && this.renderPluginForm(),
-            this.renderPluginsList()
-          )
+          this.renderAppsList()
         );
       }
 
@@ -691,102 +523,6 @@ export default function (context: any): void {
           React.createElement('pre', {
             style: { margin: 0, whiteSpace: 'pre-wrap', wordWrap: 'break-word' }
           }, this.state.logs)
-        );
-      }
-
-      renderPluginForm() {
-        const { pluginFormData, loadingPlugin } = this.state;
-
-        return React.createElement('form', {
-          onSubmit: this.handleAddPlugin,
-          style: { backgroundColor: 'white', padding: '20px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #ddd' }
-        },
-          React.createElement('h4', { style: { marginTop: 0 } }, 'Install WordPress Plugin from Git'),
-          this.renderPluginInput('Plugin Name *', 'name', pluginFormData.name, 'my-plugin', true, 'Display name for the plugin'),
-          this.renderPluginInput('Git Repository URL *', 'gitUrl', pluginFormData.gitUrl, 'https://github.com/user/repo.git', true),
-          this.renderPluginInput('Branch', 'branch', pluginFormData.branch, 'main'),
-          this.renderPluginInput('Subdirectory', 'subdirectory', pluginFormData.subdirectory, 'wp-plugin', false, 'For monorepos: path to plugin folder (e.g., wp-plugin or plugins/my-plugin)'),
-          this.renderPluginInput('Plugin Slug *', 'slug', pluginFormData.slug, 'my-plugin', true, 'WordPress plugin folder name (lowercase, dashes only)'),
-          React.createElement('div', { style: { marginBottom: '15px' } },
-            React.createElement('label', { style: { display: 'flex', alignItems: 'center', gap: '8px' } },
-              React.createElement('input', {
-                type: 'checkbox',
-                checked: pluginFormData.autoActivate,
-                onChange: (e: any) => this.handlePluginInputChange('autoActivate', e.target.checked)
-              }),
-              'Activate plugin after installation'
-            )
-          ),
-          React.createElement('div', { style: { display: 'flex', gap: '10px' } },
-            React.createElement('button', {
-              type: 'submit',
-              disabled: loadingPlugin,
-              style: { padding: '10px 20px', backgroundColor: loadingPlugin ? '#ccc' : '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: loadingPlugin ? 'not-allowed' : 'pointer', fontSize: '16px' }
-            }, loadingPlugin ? 'Installing...' : 'Install Plugin'),
-            React.createElement('button', {
-              type: 'button',
-              onClick: this.handleCancelPluginForm,
-              disabled: loadingPlugin,
-              style: { padding: '10px 20px', backgroundColor: '#666', color: 'white', border: 'none', borderRadius: '4px', cursor: loadingPlugin ? 'not-allowed' : 'pointer', fontSize: '16px' }
-            }, 'Cancel')
-          )
-        );
-      }
-
-      renderPluginInput(label: string, field: string, value: string, placeholder: string, required = false, helpText?: string) {
-        return React.createElement('div', { style: { marginBottom: '15px' } },
-          React.createElement('label', { style: { display: 'block', marginBottom: '5px', fontWeight: 'bold' } }, label),
-          React.createElement('input', {
-            type: 'text',
-            value: value,
-            onChange: (e: any) => this.handlePluginInputChange(field, e.target.value),
-            placeholder: placeholder,
-            required: required,
-            style: { width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }
-          }),
-          helpText && React.createElement('small', { style: { color: '#666' } }, helpText)
-        );
-      }
-
-      renderPluginsList() {
-        const { plugins } = this.state;
-        return React.createElement('div', null,
-          React.createElement('h4', null, `Installed Plugins (${plugins.length})`),
-          plugins.length === 0
-            ? React.createElement('p', { style: { color: '#666', fontStyle: 'italic' } }, 'No plugins installed via Node Orchestrator yet.')
-            : React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
-                plugins.map((plugin: any) => React.createElement('div', {
-                  key: plugin.slug,
-                  style: { backgroundColor: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }
-                },
-                  React.createElement('div', { style: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' } },
-                    React.createElement('strong', { style: { fontSize: '16px' } }, plugin.name),
-                    React.createElement('span', {
-                      style: { padding: '4px 8px', borderRadius: '4px', fontSize: '12px', fontWeight: 'bold', backgroundColor: plugin.active ? '#d7f8d7' : '#f0f0f0', color: plugin.active ? '#00a32a' : '#666' }
-                    }, plugin.active ? 'Active' : 'Inactive')
-                  ),
-                  React.createElement('div', { style: { fontSize: '13px', color: '#666', marginBottom: '10px' } },
-                    React.createElement('div', null, `Slug: ${plugin.slug}`),
-                    plugin.gitUrl && React.createElement('div', null, `Git: ${plugin.gitUrl}`),
-                    plugin.branch && React.createElement('div', null, `Branch: ${plugin.branch}`),
-                    plugin.subdirectory && React.createElement('div', null, `Subdirectory: ${plugin.subdirectory}`)
-                  ),
-                  React.createElement('div', { style: { display: 'flex', gap: '8px', flexWrap: 'wrap' } },
-                    !plugin.active && React.createElement('button', {
-                      onClick: () => this.handleActivatePlugin(plugin.id),
-                      style: { padding: '6px 12px', backgroundColor: '#00a32a', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
-                    }, 'Activate'),
-                    plugin.active && React.createElement('button', {
-                      onClick: () => this.handleDeactivatePlugin(plugin.id),
-                      style: { padding: '6px 12px', backgroundColor: '#ff9800', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
-                    }, 'Deactivate'),
-                    React.createElement('button', {
-                      onClick: () => this.handleRemovePlugin(plugin.id, plugin.name),
-                      style: { padding: '6px 12px', backgroundColor: '#dc3545', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer', fontSize: '13px' }
-                    }, 'Remove')
-                  )
-                ))
-              )
         );
       }
     }

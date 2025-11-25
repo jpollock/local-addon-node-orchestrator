@@ -62,7 +62,7 @@ const branchSchema = z
 const subdirectorySchema = z
   .string()
   .max(500, 'Subdirectory path too long')
-  .regex(/^[a-zA-Z0-9/_.-]+$/, 'Invalid characters in subdirectory path')
+  .regex(/^[a-zA-Z0-9/_.-]*$/, 'Invalid characters in subdirectory path') // * allows empty string
   .refine(
     (path) => {
       // Block path traversal patterns
