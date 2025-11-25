@@ -6,6 +6,7 @@
 import { spawn } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs-extra';
+import * as os from 'os';
 import * as Local from '@getflywheel/local';
 
 export interface WpCliResult {
@@ -110,6 +111,26 @@ export class WpCliManager {
   }
 
   /**
+   * Expand tilde (~) in file paths to home directory
+   */
+  private expandTilde(filePath: string): string {
+    if (!filePath) return filePath;
+
+    // If path starts with ~/, replace with home directory
+    if (filePath.startsWith('~/')) {
+      return path.join(os.homedir(), filePath.slice(2));
+    }
+
+    // If path is just ~, return home directory
+    if (filePath === '~') {
+      return os.homedir();
+    }
+
+    // Otherwise return as-is (including if ~ appears in middle of path, which is unusual)
+    return filePath;
+  }
+
+  /**
    * Validate command against whitelist
    */
   private validateCommand(command: string, args: string[]): { valid: boolean; error?: string } {
@@ -179,7 +200,9 @@ export class WpCliManager {
       }
 
       // Get WordPress installation path
-      const wpPath_site = path.join(site.path, 'app', 'public');
+      // Expand tilde and resolve to absolute path
+      const sitePath = this.expandTilde(site.path);
+      const wpPath_site = path.resolve(sitePath, 'app', 'public');
 
       // Verify WordPress installation exists
       if (!await fs.pathExists(wpPath_site)) {
