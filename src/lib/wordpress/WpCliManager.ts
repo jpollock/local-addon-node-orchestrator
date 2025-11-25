@@ -1,12 +1,8 @@
 /**
- * WpCliManager - Manages WP-CLI command execution
+ * WpCliManager - Manages WP-CLI command execution using Local's built-in wpCli service
  * Provides a secure interface for running WP-CLI commands on WordPress sites
  */
 
-import { spawn } from 'child_process';
-import * as path from 'path';
-import * as fs from 'fs-extra';
-import * as os from 'os';
 import * as Local from '@getflywheel/local';
 
 export interface WpCliResult {
@@ -25,10 +21,10 @@ export interface PluginInfo {
 
 /**
  * WP-CLI Manager
- * Handles all WP-CLI operations with security validation
+ * Uses Local's built-in wpCli service for all operations
  */
 export class WpCliManager {
-  private wpCliPath: string | null = null;
+  private wpCli: any;  // Local's wpCli service from service container
 
   // Whitelist of allowed WP-CLI commands for security
   private readonly ALLOWED_COMMANDS = new Set([
@@ -59,75 +55,8 @@ export class WpCliManager {
     'update'
   ]);
 
-  constructor() {
-    // WP-CLI path will be resolved dynamically
-  }
-
-  /**
-   * Resolve WP-CLI binary path
-   * Tries multiple common locations used by Local
-   */
-  private async resolveWpCliPath(): Promise<string | null> {
-    // If already resolved, return cached path
-    if (this.wpCliPath) {
-      return this.wpCliPath;
-    }
-
-    // Common WP-CLI paths in Local
-    const possiblePaths = [
-      '/Applications/Local.app/Contents/Resources/extraResources/bin/wp-cli/wp',
-      '/Applications/Local.app/Contents/Resources/extraResources/lightning-services/php-7.4.1+8/bin/darwin/bin/wp',
-      '/Applications/Local.app/Contents/Resources/extraResources/lightning-services/php-8.0.0+3/bin/darwin/bin/wp',
-      '/Applications/Local.app/Contents/Resources/extraResources/lightning-services/php-8.1.0+2/bin/darwin/bin/wp',
-      '/usr/local/bin/wp',
-      '/opt/homebrew/bin/wp',
-      'wp' // Try system PATH
-    ];
-
-    // Check each path
-    for (const wpPath of possiblePaths) {
-      try {
-        // For simple 'wp', assume it exists if we're checking system PATH
-        if (wpPath === 'wp') {
-          this.wpCliPath = wpPath;
-          return wpPath;
-        }
-
-        // Check if file exists and is executable
-        if (await fs.pathExists(wpPath)) {
-          const stats = await fs.stat(wpPath);
-          if (stats.isFile()) {
-            this.wpCliPath = wpPath;
-            return wpPath;
-          }
-        }
-      } catch (error) {
-        // Continue to next path
-        continue;
-      }
-    }
-
-    return null;
-  }
-
-  /**
-   * Expand tilde (~) in file paths to home directory
-   */
-  private expandTilde(filePath: string): string {
-    if (!filePath) return filePath;
-
-    // If path starts with ~/, replace with home directory
-    if (filePath.startsWith('~/')) {
-      return path.join(os.homedir(), filePath.slice(2));
-    }
-
-    // If path is just ~, return home directory
-    if (filePath === '~') {
-      return os.homedir();
-    }
-
-    // Otherwise return as-is (including if ~ appears in middle of path, which is unusual)
-    return filePath;
+  constructor(wpCli: any) {
+    this.wpCli = wpCli;
   }
 
   /**
@@ -168,7 +97,7 @@ export class WpCliManager {
   }
 
   /**
-   * Execute a WP-CLI command
+   * Execute a WP-CLI command using Local's wpCli service
    *
    * @param site - The Local site object
    * @param command - The WP-CLI command (e.g., 'plugin')
@@ -181,15 +110,6 @@ export class WpCliManager {
     args: string[] = []
   ): Promise<WpCliResult> {
     try {
-      // Resolve WP-CLI path
-      const wpPath = await this.resolveWpCliPath();
-      if (!wpPath) {
-        return {
-          success: false,
-          error: 'WP-CLI binary not found. Please ensure WP-CLI is installed in Local.'
-        };
-      }
-
       // Validate command
       const validation = this.validateCommand(command, args);
       if (!validation.valid) {
@@ -199,29 +119,21 @@ export class WpCliManager {
         };
       }
 
-      // Get WordPress installation path
-      // Expand tilde and resolve to absolute path
-      const sitePath = this.expandTilde(site.path);
-      const wpPath_site = path.resolve(sitePath, 'app', 'public');
+      // Build full command arguments array
+      const fullArgs = [command, ...args];
 
-      // Verify WordPress installation exists
-      if (!await fs.pathExists(wpPath_site)) {
-        return {
-          success: false,
-          error: 'WordPress installation not found in site directory'
-        };
-      }
+      // Execute using Local's wpCli service
+      const result = await this.wpCli.run(site, fullArgs);
 
-      // Build command arguments
-      const fullArgs = [command, ...args, `--path=${wpPath_site}`];
-
-      // Execute WP-CLI command
-      return await this.spawnWpCliProcess(wpPath, fullArgs);
+      return {
+        success: true,
+        output: result.stdout || ''
+      };
 
     } catch (error: any) {
       return {
         success: false,
-        error: this.sanitizeError(error)
+        error: error.stderr || error.message || 'WP-CLI command failed'
       };
     }
   }
@@ -246,64 +158,6 @@ export class WpCliManager {
 
     const [command, ...args] = parts;
     return await this.execute(site, command, args);
-  }
-
-  /**
-   * Spawn WP-CLI process and capture output
-   */
-  private spawnWpCliProcess(wpPath: string, args: string[]): Promise<WpCliResult> {
-    return new Promise((resolve) => {
-      let stdout = '';
-      let stderr = '';
-
-      // Spawn process with shell: false for security
-      const proc = spawn(wpPath, args, {
-        shell: false,
-        stdio: 'pipe'
-      });
-
-      // Capture stdout
-      proc.stdout?.on('data', (data: Buffer) => {
-        stdout += data.toString();
-      });
-
-      // Capture stderr
-      proc.stderr?.on('data', (data: Buffer) => {
-        stderr += data.toString();
-      });
-
-      // Handle process completion
-      proc.on('close', (code: number) => {
-        if (code === 0) {
-          resolve({
-            success: true,
-            output: stdout.trim()
-          });
-        } else {
-          resolve({
-            success: false,
-            error: stderr.trim() || stdout.trim() || `WP-CLI command exited with code ${code}`
-          });
-        }
-      });
-
-      // Handle process errors
-      proc.on('error', (error: Error) => {
-        resolve({
-          success: false,
-          error: this.sanitizeError(error)
-        });
-      });
-
-      // Set timeout (30 seconds)
-      setTimeout(() => {
-        proc.kill();
-        resolve({
-          success: false,
-          error: 'WP-CLI command timed out after 30 seconds'
-        });
-      }, 30000);
-    });
   }
 
   /**
@@ -428,23 +282,5 @@ export class WpCliManager {
     // Format check: alphanumeric, hyphens, underscores only
     const validSlugPattern = /^[a-z0-9_-]+$/i;
     return validSlugPattern.test(slug);
-  }
-
-  /**
-   * Sanitize error messages
-   */
-  private sanitizeError(error: any): string {
-    if (!error) {
-      return 'Unknown WP-CLI error occurred';
-    }
-
-    let message = error.message || String(error);
-
-    // Remove user paths
-    message = message.replace(/\/Users\/[^/\s]+/g, '[USER]');
-    message = message.replace(/\/home\/[^/\s]+/g, '[USER]');
-    message = message.replace(/C:\\Users\\[^\\s]+/g, '[USER]');
-
-    return message;
   }
 }

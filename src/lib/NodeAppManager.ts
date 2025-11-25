@@ -5,6 +5,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs-extra';
+import * as os from 'os';
 import { v4 as uuidv4 } from 'uuid';
 import * as Local from '@getflywheel/local';
 import { spawn, ChildProcess } from 'child_process';
@@ -54,6 +55,21 @@ export class NodeAppManager {
   }
 
   /**
+   * Expand tilde (~) in file paths to home directory
+   * Local sometimes stores site paths with ~ instead of full path
+   */
+  private expandTilde(filePath: string): string {
+    if (!filePath) return filePath;
+    if (filePath.startsWith('~/')) {
+      return path.join(os.homedir(), filePath.slice(2));
+    }
+    if (filePath === '~') {
+      return os.homedir();
+    }
+    return filePath;
+  }
+
+  /**
    * Add a new Node.js app to a site
    * 1. Clones the repository
    * 2. Runs install command
@@ -68,8 +84,9 @@ export class NodeAppManager {
     // Generate app ID
     const appId = uuidv4();
 
-    // Create app directory path
-    const appsDir = path.join(site.path, 'node-apps');
+    // Create app directory path (expand tilde if present in site.path)
+    const sitePath = this.expandTilde(site.path);
+    const appsDir = path.join(sitePath, 'node-apps');
     const appPath = path.join(appsDir, appId);
 
     try {
@@ -197,7 +214,7 @@ export class NodeAppManager {
               }
             }
 
-            // Install the plugin
+            // Install the plugin (skip activation - we'll handle it in Step 5a after starting the site)
             const installedPlugin = await this.pluginManager.installPlugin(
               site,
               {
@@ -213,7 +230,8 @@ export class NodeAppManager {
                     message: pluginProgress.message
                   });
                 }
-              }
+              },
+              { skipActivation: true } // Activation handled separately after site starts
             );
 
             bundledPluginIds.push(installedPlugin.id);
@@ -305,8 +323,8 @@ export class NodeAppManager {
         updatedAt: new Date()
       };
 
-      // Step 6: Save configuration
-      await this.configManager.saveApp(site.id, site.path, app);
+      // Step 6: Save configuration (use expanded sitePath)
+      await this.configManager.saveApp(site.id, sitePath, app);
 
       if (onProgress) {
         onProgress({

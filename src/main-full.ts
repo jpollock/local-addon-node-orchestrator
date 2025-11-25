@@ -25,7 +25,7 @@ import {
 import { logAndSanitizeError } from './security/errors';
 
 export default function (context: LocalMain.AddonMainContext): void {
-  const { localLogger, siteData, siteProcessManager, siteDatabase, ports } = LocalMain.getServiceContainer().cradle;
+  const { localLogger, siteData, siteProcessManager, siteDatabase, ports, wpCli } = LocalMain.getServiceContainer().cradle;
 
   console.log('[Node Orchestrator] Main addon loading...');
   console.log('[Node Orchestrator] Available hooks:', Object.keys(context.hooks || {}));
@@ -33,7 +33,7 @@ export default function (context: LocalMain.AddonMainContext): void {
   // Initialize managers
   const configManager = new ConfigManager();
   const gitManager = new GitManager();
-  const wpCliManager = new WpCliManager();
+  const wpCliManager = new WpCliManager(wpCli);  // Use Local's built-in wpCli service
   const pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
   const appManager = new NodeAppManager(configManager, gitManager, ports, pluginManager, siteProcessManager, siteDatabase);
 

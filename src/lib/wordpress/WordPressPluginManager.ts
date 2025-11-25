@@ -5,6 +5,7 @@
 
 import * as path from 'path';
 import * as fs from 'fs-extra';
+import * as os from 'os';
 import * as Local from '@getflywheel/local';
 import { v4 as uuidv4 } from 'uuid';
 import { GitManager } from '../GitManager';
@@ -41,53 +42,103 @@ export class WordPressPluginManager {
   }
 
   /**
+   * Expand tilde (~) in file paths to home directory
+   * Local sometimes stores site paths with ~ instead of full path
+   */
+  private expandTilde(filePath: string): string {
+    if (!filePath) return filePath;
+    if (filePath.startsWith('~/')) {
+      return path.join(os.homedir(), filePath.slice(2));
+    }
+    if (filePath === '~') {
+      return os.homedir();
+    }
+    return filePath;
+  }
+
+  /**
    * Install a WordPress plugin from any supported source
    *
    * @param site - The Local site object
    * @param config - Plugin installation configuration (discriminated by source)
    * @param onProgress - Optional progress callback
+   * @param options - Additional options
+   * @param options.skipActivation - Skip activation during install (useful when site isn't running)
    * @returns Promise resolving to installed plugin
    */
   async installPlugin(
     site: Local.Site,
     config: PluginConfig & { name?: string },
-    onProgress?: (event: PluginInstallProgress) => void
+    onProgress?: (event: PluginInstallProgress) => void,
+    options?: { skipActivation?: boolean }
   ): Promise<WordPressPlugin> {
     // Validate plugin slug
     if (!this.isValidPluginSlug(config.slug)) {
       throw new Error('Invalid plugin slug. Must contain only lowercase letters, numbers, hyphens, and underscores.');
     }
 
-    // Get WordPress plugins directory
-    const pluginsDir = path.join(site.path, 'app', 'public', 'wp-content', 'plugins');
+    // Get WordPress plugins directory (expand tilde if present in site.path)
+    const sitePath = this.expandTilde(site.path);
+    const pluginsDir = path.join(sitePath, 'app', 'public', 'wp-content', 'plugins');
     const pluginInstallPath = path.join(pluginsDir, config.slug);
 
     // Check if plugin already exists
     if (await fs.pathExists(pluginInstallPath)) {
-      throw new Error(`Plugin directory already exists: ${config.slug}`);
+      console.log(`[WordPressPluginManager] Plugin directory exists at: ${pluginInstallPath}`);
+
+      // Check if it's a valid plugin installation
+      const validationResult = await this.validatePluginStructure(pluginInstallPath, config.slug);
+      console.log(`[WordPressPluginManager] Validation result for ${config.slug}:`, validationResult);
+
+      if (validationResult.valid) {
+        // Plugin already exists and is valid - return existing plugin info
+        console.log(`[WordPressPluginManager] Plugin ${config.slug} already installed, skipping installation`);
+        const pluginInfo = await this.wpCliManager.getPluginStatus(site, config.slug);
+        return {
+          id: uuidv4(),
+          name: config.name || config.slug,
+          slug: config.slug,
+          source: config.source,
+          status: pluginInfo?.status === 'active' ? 'active' : 'installed',
+          installedPath: pluginInstallPath,
+          version: pluginInfo?.version,
+          createdAt: new Date()
+        };
+      } else {
+        // Directory exists but is empty or invalid - remove and reinstall
+        console.log(`[WordPressPluginManager] Plugin directory ${config.slug} exists but is invalid, removing and reinstalling`);
+        await fs.remove(pluginInstallPath);
+      }
+    } else {
+      console.log(`[WordPressPluginManager] Plugin directory does not exist at: ${pluginInstallPath}`);
     }
 
     // Ensure plugins directory exists
     await fs.ensureDir(pluginsDir);
 
+    // If skipActivation is set, override autoActivate to false
+    const effectiveConfig = options?.skipActivation
+      ? { ...config, autoActivate: false }
+      : config;
+
     // Dispatch to appropriate installation method based on source
     let pluginResult: WordPressPlugin;
 
-    switch (config.source) {
+    switch (effectiveConfig.source) {
       case 'bundled':
-        pluginResult = await this.installFromBundled(site, config, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromBundled(site, effectiveConfig, pluginInstallPath, onProgress);
         break;
       case 'git':
-        pluginResult = await this.installFromGit(site, config, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromGit(site, effectiveConfig, pluginInstallPath, onProgress);
         break;
       case 'zip':
-        pluginResult = await this.installFromZip(site, config, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromZip(site, effectiveConfig, pluginInstallPath, onProgress);
         break;
       case 'wporg':
-        pluginResult = await this.installFromWpOrg(site, config, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromWpOrg(site, effectiveConfig, pluginInstallPath, onProgress);
         break;
       default:
-        throw new Error(`Unsupported plugin source: ${(config as any).source}`);
+        throw new Error(`Unsupported plugin source: ${(effectiveConfig as any).source}`);
     }
 
     return pluginResult;
@@ -197,7 +248,8 @@ export class WordPressPluginManager {
       }
 
       // Create temporary directory for cloning
-      const tempDir = path.join(site.path, 'node-apps', '.temp');
+      const sitePath = this.expandTilde(site.path);
+      const tempDir = path.join(sitePath, 'node-apps', '.temp');
       await fs.ensureDir(tempDir);
       tempClonePath = path.join(tempDir, `plugin-${pluginId}`);
 
