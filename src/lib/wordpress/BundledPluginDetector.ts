@@ -138,7 +138,7 @@ export class BundledPluginDetector {
           source: 'bundled',
           path: conventionalPath,
           slug,
-          autoActivate: false, // Conservative default
+          autoActivate: true, // Auto-activate by default
         });
       }
     }

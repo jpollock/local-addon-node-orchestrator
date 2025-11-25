@@ -195,6 +195,7 @@ export interface WordPressPlugin {
   installedPath: string;
   version?: string;
   error?: string;
+  autoActivate?: boolean; // Whether to auto-activate on site start
   createdAt: Date;
   updatedAt?: Date;
 

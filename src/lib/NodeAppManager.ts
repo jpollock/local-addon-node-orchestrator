@@ -31,13 +31,17 @@ export class NodeAppManager {
   private npmManager: NpmManager;
   private pluginManager: WordPressPluginManager;
   private pluginDetector: BundledPluginDetector;
+  private siteProcessManager: any; // Local.SiteProcessManager from service container
+  private siteDatabase: any; // Local.SiteDatabase from service container
   private runningProcesses: Map<string, ChildProcess> = new Map();
 
   constructor(
     configManager: ConfigManager,
     gitManager: GitManager,
     portsService: any, // Local.Services.Ports from service container
-    pluginManager: WordPressPluginManager
+    pluginManager: WordPressPluginManager,
+    siteProcessManager: any,
+    siteDatabase: any
   ) {
     this.configManager = configManager;
     this.gitManager = gitManager;
@@ -45,6 +49,8 @@ export class NodeAppManager {
     this.npmManager = new NpmManager();
     this.pluginManager = pluginManager;
     this.pluginDetector = new BundledPluginDetector();
+    this.siteProcessManager = siteProcessManager;
+    this.siteDatabase = siteDatabase;
   }
 
   /**
@@ -148,8 +154,9 @@ export class NodeAppManager {
 
       // Step 5: Detect and install bundled WordPress plugins
       const bundledPluginIds: string[] = [];
+      let detectionResult: any = null; // Store for later activation
       try {
-        const detectionResult = await this.pluginDetector.detectPlugins(appPath);
+        detectionResult = await this.pluginDetector.detectPlugins(appPath);
 
         if (detectionResult.plugins.length > 0) {
           if (onProgress) {
@@ -218,6 +225,59 @@ export class NodeAppManager {
         console.error(`[NodeAppManager] Failed to install bundled plugins: ${pluginError.message}`);
         console.error(pluginError);
         // Continue with app installation even if plugins fail
+      }
+
+      // Step 5a: Activate bundled plugins with autoActivate: true
+      try {
+        if (detectionResult && detectionResult.plugins) {
+          const pluginsToActivate = detectionResult.plugins.filter((p: any) => p.autoActivate);
+
+          if (pluginsToActivate.length > 0) {
+          console.log(`[NodeAppManager] Activating ${pluginsToActivate.length} plugin(s) with autoActivate: true`);
+
+          // Check site state and start if needed
+          const siteStatus = this.siteProcessManager.getSiteStatus(site);
+          const wasRunning = siteStatus === 'running';
+          let needsStop = false;
+
+          if (!wasRunning) {
+            console.log(`[NodeAppManager] Site not running, starting temporarily for plugin activation`);
+            await this.siteProcessManager.start(site);
+            needsStop = true;
+          }
+
+          // Wait for database to be ready
+          const dbReady = await this.siteDatabase.waitForDB(site);
+          if (!dbReady) {
+            console.warn(`[NodeAppManager] Database not ready, skipping plugin activation`);
+          } else {
+            // Activate each plugin
+            for (const pluginConfig of pluginsToActivate) {
+              try {
+                const result = await this.pluginManager.activatePlugin(site, pluginConfig.slug);
+                if (result.success) {
+                  console.log(`[NodeAppManager] Activated plugin: ${pluginConfig.slug}`);
+                } else {
+                  console.warn(`[NodeAppManager] Failed to activate plugin ${pluginConfig.slug}: ${result.error}`);
+                }
+              } catch (activationError: any) {
+                console.warn(`[NodeAppManager] Error activating plugin ${pluginConfig.slug}:`, activationError.message);
+              }
+            }
+          }
+
+          // Restore site state - stop if we started it
+          if (needsStop) {
+            console.log(`[NodeAppManager] Stopping site (restoring original state)`);
+            await this.siteProcessManager.stop(site, { dumpDatabase: false });
+          }
+          }
+        }
+      } catch (activationError: any) {
+        // Log activation errors but don't fail the entire app installation
+        console.error(`[NodeAppManager] Failed to activate bundled plugins: ${activationError.message}`);
+        console.error(activationError);
+        // Continue with app installation even if activation fails
       }
 
       // Step 6: Allocate port using Local's Ports service

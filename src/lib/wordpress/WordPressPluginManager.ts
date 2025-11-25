@@ -488,6 +488,15 @@ export class WordPressPluginManager {
   }
 
   /**
+   * Get plugin status
+   * @returns 'active', 'inactive', or 'not-installed'
+   */
+  async getPluginStatus(site: Local.Site, slug: string): Promise<'active' | 'inactive' | 'not-installed'> {
+    const result = await this.wpCliManager.getPluginStatus(site, slug);
+    return result?.status || 'not-installed';
+  }
+
+  /**
    * Remove a plugin (deactivates first, then deletes)
    */
   async removePlugin(site: Local.Site, slug: string): Promise<{ success: boolean; error?: string }> {

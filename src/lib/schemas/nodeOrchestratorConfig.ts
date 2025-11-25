@@ -13,7 +13,7 @@ const BasePluginConfigSchema = z.object({
     .min(1, 'Plugin slug is required')
     .max(200, 'Plugin slug too long')
     .regex(/^[a-z0-9_-]+$/, 'Plugin slug must contain only lowercase letters, numbers, hyphens, and underscores'),
-  autoActivate: z.boolean().optional().default(false),
+  autoActivate: z.boolean().optional().default(true),
 });
 
 /**

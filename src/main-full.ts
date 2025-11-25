@@ -35,7 +35,7 @@ export default function (context: LocalMain.AddonMainContext): void {
   const gitManager = new GitManager();
   const wpCliManager = new WpCliManager();
   const pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
-  const appManager = new NodeAppManager(configManager, gitManager, ports, pluginManager);
+  const appManager = new NodeAppManager(configManager, gitManager, ports, pluginManager, siteProcessManager, siteDatabase);
 
   console.log('[Node Orchestrator] Managers initialized');
 
@@ -50,6 +50,39 @@ export default function (context: LocalMain.AddonMainContext): void {
       }
 
       localLogger.log('info', `Started ${autoStartApps.length} Node.js apps for ${site.name}`);
+
+      // Auto-activate bundled plugins with autoActivate: true
+      try {
+        for (const app of apps) {
+          if (app.bundledPlugins && app.bundledPlugins.length > 0) {
+            const plugins = await configManager.loadPlugins(site.id, site.path);
+
+            for (const plugin of plugins) {
+              // Check if plugin is bundled with this app and has autoActivate
+              if (app.bundledPlugins.includes(plugin.id) && plugin.autoActivate) {
+                try {
+                  // Check current status
+                  const status = await pluginManager.getPluginStatus(site, plugin.slug);
+
+                  // Activate if not already active
+                  if (status !== 'active') {
+                    const result = await pluginManager.activatePlugin(site, plugin.slug);
+                    if (result.success) {
+                      localLogger.log('info', `Activated bundled plugin: ${plugin.slug}`, { appId: app.id });
+                    } else {
+                      localLogger.warn(`Failed to activate bundled plugin: ${plugin.slug}`, { error: result.error });
+                    }
+                  }
+                } catch (pluginError: any) {
+                  localLogger.warn(`Error activating bundled plugin: ${plugin.slug}`, { error: pluginError.message });
+                }
+              }
+            }
+          }
+        }
+      } catch (activationError: any) {
+        localLogger.warn('Error during plugin activation on site start', { error: activationError.message });
+      }
     } catch (error) {
       localLogger.error('Failed to start Node.js apps', { error, siteId: site.id });
     }
