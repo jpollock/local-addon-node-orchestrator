@@ -31,18 +31,35 @@ const GitPluginConfigSchema = BasePluginConfigSchema.extend({
   source: z.literal('git'),
   url: z.string().url('Invalid Git URL'),
   branch: z.string().min(1, 'Branch name is required').default('main'),
-  subdirectory: z.string().optional(),
 });
 
 /**
  * Zip file plugin (local or remote)
+ * Supports:
+ * - Remote HTTPS URLs: https://example.com/plugin.zip
+ * - Absolute file paths: file:///path/to/plugin.zip
+ * - Relative paths within repo: plugins/my-plugin.zip
  */
 const ZipPluginConfigSchema = BasePluginConfigSchema.extend({
   source: z.literal('zip'),
-  url: z.string().min(1, 'Zip URL is required')
+  url: z.string().min(1, 'Zip URL or path is required')
     .refine(
-      (url) => url.startsWith('https://') || url.startsWith('file://'),
-      'Zip URL must start with https:// or file://'
+      (url) => {
+        // Allow HTTPS URLs
+        if (url.startsWith('https://')) return true;
+
+        // Allow file:// URLs
+        if (url.startsWith('file://')) return true;
+
+        // Allow relative paths within repository
+        // Must not start with / or contain path traversal
+        if (!url.startsWith('/') && !url.includes('..') && url.endsWith('.zip')) {
+          return true;
+        }
+
+        return false;
+      },
+      'Zip URL must be https://, file://, or a relative path ending in .zip (no path traversal)'
     ),
   checksum: z.string().optional(), // Optional SHA256 checksum for verification
 });
@@ -69,7 +86,6 @@ export const PluginConfigSchema = z.discriminatedUnion('source', [
  * Node app configuration section
  */
 const NodeConfigSchema = z.object({
-  subdirectory: z.string().optional(),
   startCommand: z.string().optional(),
   autoStart: z.boolean().optional().default(false),
   port: z.number().int().min(1024).max(65535).optional(),

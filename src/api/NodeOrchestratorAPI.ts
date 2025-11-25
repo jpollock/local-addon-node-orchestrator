@@ -28,8 +28,6 @@ export interface AddNodeAppConfig {
   gitUrl: string;
   /** Git branch (default: 'main') */
   branch?: string;
-  /** Subdirectory within monorepo (optional) */
-  subdirectory?: string;
   /** Install command (default: auto-detected) */
   installCommand?: string;
   /** Build command (optional) */
@@ -68,7 +66,6 @@ export type ProgressCallback = (event: GitProgressEvent | InstallProgress | Plug
  *   name: 'my-api',
  *   gitUrl: 'https://github.com/org/repo.git',
  *   branch: 'main',
- *   subdirectory: 'packages/api',
  *   autoStart: true
  * });
  *
@@ -123,7 +120,6 @@ export class NodeOrchestratorAPI {
    *   name: 'my-api',
    *   gitUrl: 'https://github.com/org/repo.git',
    *   branch: 'develop',
-   *   subdirectory: 'packages/api',
    *   autoStart: true,
    *   env: {
    *     API_KEY: 'dev-key'
@@ -136,7 +132,6 @@ export class NodeOrchestratorAPI {
       name: config.name,
       gitUrl: config.gitUrl,
       branch: config.branch || 'main',
-      subdirectory: config.subdirectory,
       installCommand: config.installCommand,
       buildCommand: config.buildCommand,
       startCommand: config.startCommand || 'npm start',

@@ -75,7 +75,6 @@ async addNodeApp(
 - `config.name` (required): Application name
 - `config.gitUrl` (required): Git repository URL
 - `config.branch` (optional): Git branch (default: 'main')
-- `config.subdirectory` (optional): Subdirectory within monorepo
 - `config.installCommand` (optional): Install command (auto-detected if not provided)
 - `config.buildCommand` (optional): Build command
 - `config.startCommand` (optional): Start command (default: 'npm start')
@@ -85,6 +84,8 @@ async addNodeApp(
 - `config.injectWpEnv` (optional): Auto-inject WordPress env vars (default: true)
 - `onProgress` (optional): Progress callback function
 
+**Note:** Repository must have `package.json` at root. Monorepo/subdirectory support has been removed for simplicity.
+
 **Returns:** Promise<NodeApp> - The created application
 
 **Example:**
@@ -92,9 +93,8 @@ async addNodeApp(
 ```typescript
 const app = await orchestrator.addNodeApp({
   name: 'my-api',
-  gitUrl: 'https://github.com/org/monorepo.git',
+  gitUrl: 'https://github.com/org/my-api.git',
   branch: 'develop',
-  subdirectory: 'packages/api',
   autoStart: true,
   env: {
     API_KEY: 'dev-key-123',
@@ -188,10 +188,11 @@ const plugin = await orchestrator.addPlugin({
   url: 'https://github.com/org/plugin.git',
   branch: 'main',
   slug: 'my-plugin',
-  subdirectory: 'plugin',  // Optional, for monorepos
   autoActivate: true
 });
 ```
+
+**Note:** Plugin must be at repository root. Monorepo support has been removed for simplicity.
 
 ##### From Zip File (Remote)
 
@@ -283,7 +284,6 @@ export default function (context: Local.AddonMainContext): void {
         name: 'company-api',
         gitUrl: 'https://github.com/company/api.git',
         branch: 'main',
-        subdirectory: 'packages/api',
         autoStart: true,
         env: {
           COMPANY_ENV: 'development'
@@ -382,6 +382,13 @@ When adding a Node app, the system automatically detects and installs bundled Wo
         "autoActivate": true
       },
       {
+        "source": "zip",
+        "url": "plugins/bundled-premium.zip",
+        "slug": "bundled-premium",
+        "autoActivate": true,
+        "comment": "Relative path to zip file within repository"
+      },
+      {
         "source": "wporg",
         "slug": "wordpress-seo",
         "version": "^19.0",
@@ -390,7 +397,6 @@ When adding a Node app, the system automatically detects and installs bundled Wo
     ]
   },
   "node": {
-    "subdirectory": "packages/api",
     "autoStart": true,
     "port": 3000,
     "env": {

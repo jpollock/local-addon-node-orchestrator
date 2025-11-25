@@ -56,42 +56,6 @@ const branchSchema = z
   .regex(/^[a-zA-Z0-9/_.-]+$/, 'Branch name contains invalid characters');
 
 /**
- * Subdirectory validation - SECURITY CRITICAL
- * Multi-layer protection against path traversal attacks
- */
-const subdirectorySchema = z
-  .string()
-  .max(500, 'Subdirectory path too long')
-  .regex(/^[a-zA-Z0-9/_.-]*$/, 'Invalid characters in subdirectory path') // * allows empty string
-  .refine(
-    (path) => {
-      // Block path traversal patterns
-      if (path.includes('..')) {
-        return false;
-      }
-      // Block absolute paths
-      if (path.startsWith('/')) {
-        return false;
-      }
-      // Block hidden directories at the start
-      if (path.startsWith('.')) {
-        return false;
-      }
-      // Block backslashes (Windows path separators)
-      if (path.includes('\\')) {
-        return false;
-      }
-      // Block null bytes
-      if (path.includes('\0')) {
-        return false;
-      }
-      return true;
-    },
-    'Path traversal or invalid path detected'
-  )
-  .optional();
-
-/**
  * Command validation - checks for basic structure
  * More detailed validation is done by validateCommand()
  */
@@ -134,7 +98,6 @@ export const AddAppRequestSchema = z.object({
     name: appNameSchema,
     gitUrl: gitUrlSchema,
     branch: branchSchema.optional().default('main'),
-    subdirectory: subdirectorySchema,
     installCommand: autoDetectCommandSchema.optional().default(''),
     buildCommand: optionalCommandSchema,
     startCommand: commandSchema.optional().default('npm start'),

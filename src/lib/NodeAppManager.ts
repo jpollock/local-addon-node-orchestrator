@@ -83,7 +83,6 @@ export class NodeAppManager {
         url: appConfig.gitUrl,
         branch: appConfig.branch || 'main',
         targetPath: appPath,
-        subdirectory: appConfig.subdirectory,
         onProgress
       });
 
@@ -91,10 +90,8 @@ export class NodeAppManager {
         throw new Error(cloneResult.error || 'Failed to clone repository');
       }
 
-      // Determine working directory (use subdirectory if specified)
-      const workingPath = appConfig.subdirectory
-        ? path.join(appPath, appConfig.subdirectory)
-        : appPath;
+      // Use repository root as working directory
+      const workingPath = appPath;
 
       // Step 2: Detect package manager
       const packageManager = await this.detectPackageManager(workingPath);
@@ -182,6 +179,17 @@ export class NodeAppManager {
               pluginConfig.path = path.join(appPath, pluginConfig.path);
             }
 
+            // For zip plugins with relative paths, resolve relative to cloned repo
+            if (pluginConfig.source === 'zip') {
+              const url = pluginConfig.url;
+              // Check if it's a relative path (not https:// or file://)
+              if (!url.startsWith('https://') && !url.startsWith('file://')) {
+                // Convert to absolute file:// URL
+                const absolutePath = path.resolve(appPath, url);
+                pluginConfig.url = `file://${absolutePath}`;
+              }
+            }
+
             // Install the plugin
             const installedPlugin = await this.pluginManager.installPlugin(
               site,
@@ -222,7 +230,6 @@ export class NodeAppManager {
         name: appConfig.name,
         gitUrl: appConfig.gitUrl,
         branch: appConfig.branch || 'main',
-        subdirectory: appConfig.subdirectory,
         installCommand: appConfig.installCommand || `${packageManager} install`,
         buildCommand: buildCommand || '',
         startCommand: appConfig.startCommand || 'npm start',
@@ -373,13 +380,8 @@ export class NodeAppManager {
     await this.configManager.saveApp(siteId, sitePath, app);
 
     try {
-      // Get app directory
-      let appDir = app.path || path.join(sitePath, 'node-apps', appId);
-
-      // If subdirectory is specified, use it as the working directory
-      if (app.subdirectory) {
-        appDir = path.join(appDir, app.subdirectory);
-      }
+      // Get app directory (repository root)
+      const appDir = app.path || path.join(sitePath, 'node-apps', appId);
 
       // Verify directory exists
       if (!await fs.pathExists(appDir)) {

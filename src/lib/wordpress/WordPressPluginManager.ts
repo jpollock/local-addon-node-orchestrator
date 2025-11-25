@@ -206,7 +206,6 @@ export class WordPressPluginManager {
         url: config.url,
         branch: config.branch,
         targetPath: tempClonePath,
-        subdirectory: config.subdirectory,
         requirePackageJson: false // WordPress plugins are PHP, not Node.js
       });
 
@@ -214,23 +213,8 @@ export class WordPressPluginManager {
         throw new Error(cloneResult.error || 'Failed to clone plugin repository');
       }
 
-      // Determine source directory (handle monorepo subdirectory)
-      let sourceDir = tempClonePath;
-      if (config.subdirectory) {
-        sourceDir = path.join(tempClonePath, config.subdirectory);
-
-        // Validate subdirectory exists
-        if (!await fs.pathExists(sourceDir)) {
-          throw new Error(`Subdirectory not found in repository: ${config.subdirectory}`);
-        }
-
-        // Security: Ensure subdirectory is within cloned repo
-        const resolvedSourceDir = path.resolve(sourceDir);
-        const resolvedClonePath = path.resolve(tempClonePath);
-        if (!resolvedSourceDir.startsWith(resolvedClonePath)) {
-          throw new Error('Path traversal detected in subdirectory');
-        }
-      }
+      // Use repository root as source directory
+      const sourceDir = tempClonePath;
 
       // Validate plugin structure
       if (onProgress) {
@@ -287,7 +271,6 @@ export class WordPressPluginManager {
         installedPath: targetPath,
         gitUrl: config.url,
         branch: config.branch,
-        subdirectory: config.subdirectory,
         version: pluginInfo?.version,
         createdAt: new Date()
       };

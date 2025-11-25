@@ -1,6 +1,9 @@
 /**
  * ZipPluginInstaller - Handle WordPress plugin installation from zip files
- * Supports both remote (https://) and local (file://) zip files
+ * Supports:
+ * - Remote URLs (https://)
+ * - Absolute file paths (file://)
+ * - Relative paths (resolved from basePath parameter)
  */
 
 import * as path from 'path';
@@ -27,17 +30,19 @@ export interface ZipInstallResult {
  */
 export class ZipPluginInstaller {
   /**
-   * Install a plugin from a zip file (https:// or file://)
+   * Install a plugin from a zip file
    *
-   * @param zipUrl - URL to zip file (https:// or file://)
+   * @param zipUrl - URL, file path, or relative path to zip file
    * @param targetPath - Where to extract the plugin
    * @param onProgress - Optional progress callback for downloads
+   * @param basePath - Base directory for resolving relative paths (defaults to cwd)
    * @returns Install result with extracted path
    */
   async installFromZip(
     zipUrl: string,
     targetPath: string,
-    onProgress?: (progress: ZipDownloadProgress) => void
+    onProgress?: (progress: ZipDownloadProgress) => void,
+    basePath?: string
   ): Promise<ZipInstallResult> {
     let tempZipPath: string | null = null;
 
@@ -57,11 +62,30 @@ export class ZipPluginInstaller {
           };
         }
       } else {
-        return {
-          success: false,
-          extractedPath: '',
-          error: 'Zip URL must start with https:// or file://'
-        };
+        // Treat as relative path
+        const resolvedPath = basePath
+          ? path.resolve(basePath, zipUrl)
+          : path.resolve(zipUrl);
+
+        // Validate security: no path traversal outside basePath
+        if (basePath && !resolvedPath.startsWith(path.resolve(basePath))) {
+          return {
+            success: false,
+            extractedPath: '',
+            error: 'Invalid path: relative path must not escape base directory'
+          };
+        }
+
+        // Validate file exists
+        if (!await fs.pathExists(resolvedPath)) {
+          return {
+            success: false,
+            extractedPath: '',
+            error: `Zip file not found: ${resolvedPath}`
+          };
+        }
+
+        tempZipPath = resolvedPath;
       }
 
       // Step 2: Create temporary extraction directory
@@ -88,6 +112,7 @@ export class ZipPluginInstaller {
 
       // Step 6: Clean up
       await fs.remove(tempExtractDir);
+      // Only delete temporary downloads, not local files
       if (zipUrl.startsWith('https://') || zipUrl.startsWith('http://')) {
         await fs.remove(tempZipPath);
       }
@@ -99,6 +124,7 @@ export class ZipPluginInstaller {
 
     } catch (error: any) {
       // Clean up on error
+      // Only delete temporary downloads, not local files
       if (tempZipPath && (zipUrl.startsWith('https://') || zipUrl.startsWith('http://'))) {
         try {
           await fs.remove(tempZipPath);

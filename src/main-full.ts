@@ -167,8 +167,7 @@ export default function (context: LocalMain.AddonMainContext): void {
       localLogger.info('Adding Node.js app', {
         siteId: validatedRequest.siteId,
         appName: validatedRequest.app.name,
-        gitUrl: validatedRequest.app.gitUrl,
-        subdirectory: validatedRequest.app.subdirectory || '(none)'
+        gitUrl: validatedRequest.app.gitUrl
       });
 
       const app = await appManager.addApp(site, validatedRequest.app);

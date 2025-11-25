@@ -17,7 +17,6 @@ export interface NodeApp {
   branch: string;
   path?: string;                // Where it's cloned (alias for localPath)
   localPath?: string;           // Where it's cloned (deprecated, use path)
-  subdirectory?: string;        // Optional subdirectory within repo (for monorepos)
   installCommand: string;       // npm install, yarn, pnpm install
   buildCommand?: string;        // npm run build
   startCommand: string;         // npm start, node index.js
@@ -202,7 +201,6 @@ export interface WordPressPlugin {
   // Source-specific fields (optional based on source type)
   gitUrl?: string;        // For git and bundled sources
   branch?: string;        // For git source
-  subdirectory?: string;  // For monorepo plugins (git/bundled)
   zipUrl?: string;        // For zip source
   bundledPath?: string;   // For bundled source (path within node app repo)
 }
@@ -219,7 +217,6 @@ export interface InstallPluginRequest {
     name: string;
     gitUrl: string;
     branch: string;
-    subdirectory?: string;
     slug: string;
     autoActivate?: boolean;
   };

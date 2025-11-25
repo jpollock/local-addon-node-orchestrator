@@ -22,7 +22,7 @@ Manage Node.js applications alongside your WordPress sites in Local. Start, stop
 - 🌐 **Port Management** - Automatic port allocation and conflict resolution
 - 🏃 **Multiple Runtimes** - Support for different Node.js versions per app
 - 🔗 **WordPress Integration** - Auto-inject WordPress DB credentials and URLs
-- 📂 **Monorepo Support** - Run apps from subdirectories within a repository
+- 🔌 **WordPress Plugin Support** - Bundle plugins with your Node app via .nodeorchestrator.json
 
 ## Use Cases
 
