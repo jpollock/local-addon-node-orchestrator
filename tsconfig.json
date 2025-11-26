@@ -28,15 +28,14 @@
     "src/renderer.tsx",
     "src/types.ts",
     "src/lib/**/*.ts",
-    "src/security/**/*.ts"
+    "src/security/**/*.ts",
+    "src/utils/**/*.ts",
+    "src/api/**/*.ts"
   ],
   "exclude": [
     "node_modules",
     "lib",
     "**/*.spec.ts",
-    "**/*.test.ts",
-    "src/components/**",
-    "src/services/**",
-    "src/renderer-full.tsx"
+    "**/*.test.ts"
   ]
 }

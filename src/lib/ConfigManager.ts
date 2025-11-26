@@ -7,6 +7,7 @@ import * as path from 'path';
 import * as fs from 'fs-extra';
 import { NodeApp, SiteNodeApps, WordPressPlugin, SiteWordPressPlugins } from '../types';
 import { logger } from '../utils/logger';
+import { getErrorMessage } from '../utils/errorUtils';
 
 export interface ConfigManagerOptions {
   configPath?: string;
@@ -131,9 +132,9 @@ export class ConfigManager {
       this.setCached(this.configCache, siteId, config);
 
       return config.apps;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If file is corrupt or invalid, start fresh
-      logger.config.error('Failed to load config for site', { siteId, error: error.message });
+      logger.config.error('Failed to load config for site', { siteId, error: getErrorMessage(error) });
       return [];
     }
   }
@@ -160,8 +161,8 @@ export class ConfigManager {
 
       // Update cache (with TTL and size limit)
       this.setCached(this.configCache, siteId, config);
-    } catch (error: any) {
-      throw new Error(`Failed to save config for site ${siteId}: ${error.message}`);
+    } catch (error: unknown) {
+      throw new Error(`Failed to save config for site ${siteId}: ${getErrorMessage(error)}`);
     }
   }
 
@@ -257,8 +258,8 @@ export class ConfigManager {
 
       // Save imported apps
       await this.saveApps(siteId, sitePath, config.apps);
-    } catch (error: any) {
-      throw new Error(`Failed to import config: ${error.message}`);
+    } catch (error: unknown) {
+      throw new Error(`Failed to import config: ${getErrorMessage(error)}`);
     }
   }
 
@@ -297,9 +298,9 @@ export class ConfigManager {
       this.setCached(this.pluginCache, siteId, config);
 
       return config.plugins;
-    } catch (error: any) {
+    } catch (error: unknown) {
       // If file is corrupt or invalid, start fresh
-      logger.config.error('Failed to load plugins config for site', { siteId, error: error.message });
+      logger.config.error('Failed to load plugins config for site', { siteId, error: getErrorMessage(error) });
       return [];
     }
   }
@@ -326,8 +327,8 @@ export class ConfigManager {
 
       // Update cache (with TTL and size limit)
       this.setCached(this.pluginCache, siteId, config);
-    } catch (error: any) {
-      throw new Error(`Failed to save plugins config for site ${siteId}: ${error.message}`);
+    } catch (error: unknown) {
+      throw new Error(`Failed to save plugins config for site ${siteId}: ${getErrorMessage(error)}`);
     }
   }
 

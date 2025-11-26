@@ -8,6 +8,7 @@ import * as path from 'path';
 import { GitManager } from '../../src/lib/GitManager';
 import { WpCliManager } from '../../src/lib/wordpress/WpCliManager';
 import { WordPressPluginManager } from '../../src/lib/wordpress/WordPressPluginManager';
+import { isValidPluginSlug } from '../../src/security/validation';
 
 // Mock Local Site object
 const createMockSite = (sitePath: string) => ({
@@ -189,12 +190,13 @@ Description: Test
         'test_plugin',
         'plugin-123',
         'a-b-c',
-        'plugin'
+        'plugin',
+        'Plugin-Name'       // Uppercase is valid (case-insensitive)
       ];
 
       validSlugs.forEach(slug => {
-        // @ts-ignore - accessing private method for testing
-        const isValid = pluginManager['isValidPluginSlug'](slug);
+        // Test consolidated validation function from security module
+        const isValid = isValidPluginSlug(slug);
         expect(isValid).toBe(true);
       });
     });
@@ -202,17 +204,17 @@ Description: Test
     it('should reject invalid plugin slugs', () => {
       const invalidSlugs = [
         '',
-        'Plugin-Name',      // Uppercase
         'plugin name',      // Space
         'plugin/path',      // Slash
         '../plugin',        // Path traversal
         'plugin;test',      // Semicolon
+        'plugin@test',      // Special character
         'a'.repeat(201)     // Too long
       ];
 
       invalidSlugs.forEach(slug => {
-        // @ts-ignore - accessing private method for testing
-        const isValid = pluginManager['isValidPluginSlug'](slug);
+        // Test consolidated validation function from security module
+        const isValid = isValidPluginSlug(slug);
         expect(isValid).toBe(false);
       });
     });

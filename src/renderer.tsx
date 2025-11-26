@@ -1,19 +1,72 @@
-export default function (context: any): void {
-  console.log('[Node Orchestrator] Renderer loading...');
-  const { React, hooks } = context;
-  console.log('[Node Orchestrator] React:', !!React, 'Hooks:', !!hooks);
+import type { RendererContext, LocalSiteProps, NodeApp, LocalElectron } from './types';
 
-  const NodeAppsInfo = (props: any) => {
-    // The site data is passed directly as props, not as props.site
-    const site = props;
+// Extend window for Electron access fallback
+declare global {
+  interface Window {
+    electron?: LocalElectron;
+  }
+}
+
+// IPC Response types for type assertions
+interface GetAppsResponse {
+  success: boolean;
+  apps?: NodeApp[];
+  error?: string;
+}
+
+interface AppResponse {
+  success: boolean;
+  app?: NodeApp;
+  error?: string;
+}
+
+interface LogsResponse {
+  success: boolean;
+  logs?: string;
+  error?: string;
+}
+
+interface IPCResponse {
+  success: boolean;
+  error?: string;
+}
+
+export default function (context: RendererContext): void {
+  const { React, hooks } = context;
+
+  const NodeAppsInfo = (props: LocalSiteProps) => {
+    // Extract site from props
+    const site = props.site;
 
     // Check if we have valid site data
     if (!site || !site.id) {
       return null; // Don't show anything if no site data
     }
 
-    class NodeAppsManager extends React.Component<any, any> {
-      state = {
+    interface FormData {
+      name: string;
+      gitUrl: string;
+      branch: string;
+      installCommand: string;
+      buildCommand: string;
+      startCommand: string;
+      autoStart: boolean;
+      env: Record<string, string>;
+    }
+
+    interface ManagerState {
+      testResult: string;
+      showForm: boolean;
+      editingAppId: string | null;
+      loading: boolean;
+      apps: NodeApp[];
+      showLogsFor: string | null;
+      logs: string;
+      formData: FormData;
+    }
+
+    class NodeAppsManager extends React.Component<LocalSiteProps, ManagerState> {
+      state: ManagerState = {
         testResult: '',
         showForm: false,
         editingAppId: null,
@@ -33,7 +86,7 @@ export default function (context: any): void {
         }
       };
 
-      refreshInterval: any = null;
+      refreshInterval: ReturnType<typeof setInterval> | null = null;
 
       componentDidMount() {
         this.loadApps();
@@ -51,25 +104,30 @@ export default function (context: any): void {
 
       loadApps = async () => {
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = context.electron || window.electron;
+          if (!electron) return;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:get-apps', {
             siteId: site.id
-          });
+          }) as { success: boolean; apps?: NodeApp[] };
 
           if (response.success) {
             this.setState({ apps: response.apps || [] });
           }
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('Failed to load apps:', error);
         }
       };
 
       testIPC = async () => {
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = context.electron || window.electron;
+          if (!electron) {
+            this.setState({ testResult: '❌ Error: Electron not available' });
+            return;
+          }
           const response = await electron.ipcRenderer.invoke('node-orchestrator:get-apps', {
             siteId: site.id
-          });
+          }) as GetAppsResponse;
 
           if (response.success) {
             const appCount = response.apps?.length || 0;
@@ -79,31 +137,39 @@ export default function (context: any): void {
           } else {
             this.setState({ testResult: `⚠️ ${response.error}` });
           }
-        } catch (error: any) {
-          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } catch (error: unknown) {
+          this.setState({ testResult: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}` });
         }
       };
 
-      handleInputChange = (field: string, value: any) => {
+      handleInputChange = (field: string, value: string | boolean | Record<string, string>) => {
         this.setState({
           formData: { ...this.state.formData, [field]: value }
         });
       };
 
-      handleAddApp = async (e: any) => {
+      getElectron = (): LocalElectron | null => {
+        return context.electron || window.electron || null;
+      };
+
+      handleAddApp = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         this.setState({ loading: true, testResult: '' });
 
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = this.getElectron();
+          if (!electron) {
+            this.setState({ testResult: '❌ Error: Electron not available' });
+            return;
+          }
           const response = await electron.ipcRenderer.invoke('node-orchestrator:add-app', {
             siteId: site.id,
             app: this.state.formData
-          });
+          }) as AppResponse;
 
           if (response.success) {
             this.setState({
-              testResult: `✅ App "${response.app.name}" added successfully!`,
+              testResult: `✅ App "${response.app?.name}" added successfully!`,
               showForm: false,
               formData: {
                 name: '',
@@ -120,8 +186,8 @@ export default function (context: any): void {
           } else {
             this.setState({ testResult: `❌ Failed to add app: ${response.error}` });
           }
-        } catch (error: any) {
-          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } catch (error: unknown) {
+          this.setState({ testResult: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}` });
         } finally {
           this.setState({ loading: false });
         }
@@ -129,11 +195,12 @@ export default function (context: any): void {
 
       handleStartApp = async (appId: string) => {
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = this.getElectron();
+          if (!electron) return;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:start-app', {
             siteId: site.id,
             appId
-          });
+          }) as IPCResponse;
 
           if (response.success) {
             this.setState({ testResult: `✅ App started successfully!` });
@@ -141,18 +208,19 @@ export default function (context: any): void {
           } else {
             this.setState({ testResult: `❌ Failed to start: ${response.error}` });
           }
-        } catch (error: any) {
-          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } catch (error: unknown) {
+          this.setState({ testResult: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}` });
         }
       };
 
       handleStopApp = async (appId: string) => {
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = this.getElectron();
+          if (!electron) return;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:stop-app', {
             siteId: site.id,
             appId
-          });
+          }) as IPCResponse;
 
           if (response.success) {
             this.setState({ testResult: `✅ App stopped successfully!` });
@@ -160,8 +228,8 @@ export default function (context: any): void {
           } else {
             this.setState({ testResult: `❌ Failed to stop: ${response.error}` });
           }
-        } catch (error: any) {
-          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } catch (error: unknown) {
+          this.setState({ testResult: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}` });
         }
       };
 
@@ -171,11 +239,12 @@ export default function (context: any): void {
         }
 
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = this.getElectron();
+          if (!electron) return;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:remove-app', {
             siteId: site.id,
             appId
-          });
+          }) as IPCResponse;
 
           if (response.success) {
             this.setState({ testResult: `✅ App removed successfully!` });
@@ -183,12 +252,12 @@ export default function (context: any): void {
           } else {
             this.setState({ testResult: `❌ Failed to remove: ${response.error}` });
           }
-        } catch (error: any) {
-          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } catch (error: unknown) {
+          this.setState({ testResult: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}` });
         }
       };
 
-      handleEditApp = (app: any) => {
+      handleEditApp = (app: NodeApp) => {
         this.setState({
           editingAppId: app.id,
           showForm: true,
@@ -205,21 +274,25 @@ export default function (context: any): void {
         });
       };
 
-      handleUpdateApp = async (e: any) => {
+      handleUpdateApp = async (e: React.FormEvent<HTMLFormElement>) => {
         e.preventDefault();
         this.setState({ loading: true, testResult: '' });
 
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = this.getElectron();
+          if (!electron) {
+            this.setState({ testResult: '❌ Error: Electron not available' });
+            return;
+          }
           const response = await electron.ipcRenderer.invoke('node-orchestrator:update-app', {
             siteId: site.id,
             appId: this.state.editingAppId,
             updates: this.state.formData
-          });
+          }) as AppResponse;
 
           if (response.success) {
             this.setState({
-              testResult: `✅ App "${response.app.name}" updated successfully!`,
+              testResult: `✅ App "${response.app?.name}" updated successfully!`,
               showForm: false,
               editingAppId: null,
               formData: {
@@ -237,8 +310,8 @@ export default function (context: any): void {
           } else {
             this.setState({ testResult: `❌ Failed to update app: ${response.error}` });
           }
-        } catch (error: any) {
-          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } catch (error: unknown) {
+          this.setState({ testResult: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}` });
         } finally {
           this.setState({ loading: false });
         }
@@ -263,12 +336,13 @@ export default function (context: any): void {
 
       handleViewLogs = async (appId: string) => {
         try {
-          const electron = context.electron || (window as any).electron;
+          const electron = this.getElectron();
+          if (!electron) return;
           const response = await electron.ipcRenderer.invoke('node-orchestrator:get-logs', {
             siteId: site.id,
             appId,
             lines: 100
-          });
+          }) as LogsResponse;
 
           if (response.success) {
             this.setState({
@@ -278,8 +352,8 @@ export default function (context: any): void {
           } else {
             this.setState({ testResult: `❌ Failed to get logs: ${response.error}` });
           }
-        } catch (error: any) {
-          this.setState({ testResult: `❌ Error: ${error.message}` });
+        } catch (error: unknown) {
+          this.setState({ testResult: `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}` });
         }
       };
 
@@ -287,14 +361,14 @@ export default function (context: any): void {
         this.setState({ showLogsFor: null, logs: '' });
       };
 
-      envObjectToString = (env: any) => {
+      envObjectToString = (env: Record<string, string>) => {
         return Object.entries(env || {})
           .map(([key, value]) => `${key}=${value}`)
           .join('\n');
       };
 
-      envStringToObject = (envString: string) => {
-        const env: any = {};
+      envStringToObject = (envString: string): Record<string, string> => {
+        const env: Record<string, string> = {};
         envString.split('\n').forEach((line) => {
           const trimmed = line.trim();
           if (trimmed && !trimmed.startsWith('#')) {
@@ -363,7 +437,7 @@ export default function (context: any): void {
             React.createElement('label', { style: { display: 'block', marginBottom: '5px', fontWeight: 'bold' } }, 'Environment Variables'),
             React.createElement('textarea', {
               value: this.envObjectToString(formData.env),
-              onChange: (e: any) => this.handleInputChange('env', this.envStringToObject(e.target.value)),
+              onChange: (e: React.ChangeEvent<HTMLTextAreaElement>) => this.handleInputChange('env', this.envStringToObject(e.target.value)),
               placeholder: 'KEY=value\nANOTHER_KEY=another value\n\nOne per line',
               rows: 5,
               style: { width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd', fontFamily: 'monospace', fontSize: '13px' }
@@ -375,7 +449,7 @@ export default function (context: any): void {
               React.createElement('input', {
                 type: 'checkbox',
                 checked: formData.autoStart,
-                onChange: (e: any) => this.handleInputChange('autoStart', e.target.checked)
+                onChange: (e: React.ChangeEvent<HTMLInputElement>) => this.handleInputChange('autoStart', e.target.checked)
               }),
               'Auto-start when site starts'
             )
@@ -402,7 +476,7 @@ export default function (context: any): void {
           React.createElement('input', {
             type: 'text',
             value: value,
-            onChange: (e: any) => this.handleInputChange(field, e.target.value),
+            onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => this.handleInputChange(field, e.target.value),
             placeholder: placeholder,
             required: required,
             style: { width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }
@@ -416,7 +490,7 @@ export default function (context: any): void {
           React.createElement('label', { style: { display: 'block', marginBottom: '5px', fontWeight: 'bold' } }, label),
           React.createElement('select', {
             value: value,
-            onChange: (e: any) => this.handleInputChange(field, e.target.value),
+            onChange: (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => this.handleInputChange(field, e.target.value),
             style: { width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #ddd' }
           }, options.map(opt => React.createElement('option', { key: opt.value, value: opt.value }, opt.label)))
         );
@@ -429,7 +503,7 @@ export default function (context: any): void {
           apps.length === 0
             ? React.createElement('p', { style: { color: '#666', fontStyle: 'italic' } }, 'No apps configured yet.')
             : React.createElement('div', { style: { display: 'flex', flexDirection: 'column', gap: '10px' } },
-                apps.map((app: any) => React.createElement('div', {
+                apps.map((app: NodeApp) => React.createElement('div', {
                   key: app.id,
                   style: { backgroundColor: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #ddd' }
                 },
@@ -523,17 +597,6 @@ export default function (context: any): void {
     return React.createElement(NodeAppsManager, { site });
   };
 
-  // Log what hooks are available
-  console.log('[Node Orchestrator] Available hooks object:', hooks);
-  if (hooks) {
-    console.log('[Node Orchestrator] Hook methods:', Object.keys(hooks));
-
-    // Try to find what content areas exist
-    if (hooks.getContentAreas) {
-      console.log('[Node Orchestrator] Content areas:', hooks.getContentAreas());
-    }
-  }
-
   // Try ALL possible hook locations
   const possibleHooks = [
     'SiteInfoOverview',
@@ -553,7 +616,6 @@ export default function (context: any): void {
   possibleHooks.forEach(hookName => {
     try {
       hooks.addContent(hookName, NodeAppsInfo);
-      console.log(`[Node Orchestrator] ✅ Registered with: ${hookName}`);
     } catch (e) {
       // Silent fail for non-existent hooks
     }
@@ -561,16 +623,12 @@ export default function (context: any): void {
 
   // Also try addFilter if it exists
   if (hooks.addFilter) {
-    console.log('[Node Orchestrator] addFilter exists, trying to use it...');
     try {
-      hooks.addFilter('siteInfoTabs', (tabs: any) => {
-        console.log('[Node Orchestrator] Current tabs:', tabs);
+      hooks.addFilter('siteInfoTabs', (tabs: unknown) => {
         return tabs;
       });
     } catch (e) {
-      console.error('[Node Orchestrator] addFilter failed:', e);
+      // Silent fail - addFilter may not be available
     }
   }
-
-  console.log('[Node Orchestrator] Renderer setup complete');
 }

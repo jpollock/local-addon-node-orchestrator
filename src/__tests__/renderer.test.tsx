@@ -109,21 +109,20 @@ describe('Node.js Orchestrator Renderer', () => {
         const instance = new NodeAppsManager({ site: mockSite });
         instance.setState = jest.fn();
 
-        const mockResponse = { success: true, data: 'test' };
+        const mockResponse = { success: true, apps: [{ id: 'app-1' }, { id: 'app-2' }] };
         mockElectron.ipcRenderer.invoke.mockResolvedValue(mockResponse);
 
         await instance.testIPC();
 
         expect(mockElectron.ipcRenderer.invoke).toHaveBeenCalledWith(
-          'node-orchestrator:test',
+          'node-orchestrator:get-apps',
           {
-            siteId: 'site-123',
-            message: 'Testing IPC communication'
+            siteId: 'site-123'
           }
         );
 
         expect(instance.setState).toHaveBeenCalledWith({
-          testResult: `IPC Response: ${JSON.stringify(mockResponse)}`
+          testResult: '✅ Connection successful! 2 Node.js app(s) configured for this site.'
         });
       });
 
@@ -137,26 +136,21 @@ describe('Node.js Orchestrator Renderer', () => {
         await instance.testIPC();
 
         expect(instance.setState).toHaveBeenCalledWith({
-          testResult: 'Error: IPC failed'
+          testResult: '❌ Error: IPC failed'
         });
       });
 
-      it('should handle missing electron context', async () => {
-        delete mockContext.electron;
-        delete (global as any).window.electron;
-
-        rendererFunction(mockContext);
-        const NodeAppsInfo = mockHooks.addContent.mock.calls[1][1];
-        const element = NodeAppsInfo({ site: mockSite });
-        const NewNodeAppsManager = element.type;
-
-        const instance = new NewNodeAppsManager({ site: mockSite });
+      it('should handle unsuccessful response', async () => {
+        const instance = new NodeAppsManager({ site: mockSite });
         instance.setState = jest.fn();
+
+        const mockResponse = { success: false, error: 'Site not found' };
+        mockElectron.ipcRenderer.invoke.mockResolvedValue(mockResponse);
 
         await instance.testIPC();
 
         expect(instance.setState).toHaveBeenCalledWith({
-          testResult: 'Error: Electron not available'
+          testResult: '⚠️ Site not found'
         });
       });
     });
@@ -188,24 +182,27 @@ describe('Node.js Orchestrator Renderer', () => {
         const instance = new NodeAppsManager({ site: mockSite });
         const rendered = instance.render();
 
-        const button = rendered.props.children[2];
-        expect(button.type).toBe('button');
-        expect(button.props.onClick).toBe(instance.testIPC);
-        expect(button.props.children).toBe('Test IPC Connection');
+        // Find the button div container (contains Test Connection and Load Apps buttons)
+        const buttonContainer = rendered.props.children[2];
+        expect(buttonContainer.type).toBe('div');
+
+        // First button should be Test Connection
+        const testButton = buttonContainer.props.children[0];
+        expect(testButton.type).toBe('button');
+        expect(testButton.props.onClick).toBe(instance.testIPC);
+        expect(testButton.props.children).toBe('Test Connection');
       });
 
       it('should display test results when available', () => {
         const instance = new NodeAppsManager({ site: mockSite });
-        instance.state.testResult = 'Test passed!';
+        instance.state.testResult = '✅ Test passed!';
         const rendered = instance.render();
 
+        // testResult is rendered after the button container (children[3])
         const resultDiv = rendered.props.children[3];
         expect(resultDiv).toBeDefined();
         expect(resultDiv.type).toBe('div');
-        
-        const small = resultDiv.props.children;
-        expect(small.type).toBe('small');
-        expect(small.props.children).toBe('Test passed!');
+        expect(resultDiv.props.children).toBe('✅ Test passed!');
       });
 
       it('should not display results div when testResult is empty', () => {
@@ -222,30 +219,29 @@ describe('Node.js Orchestrator Renderer', () => {
     it('should handle full component lifecycle', async () => {
       rendererFunction(mockContext);
       const NodeAppsInfo = mockHooks.addContent.mock.calls[0][1];
-      
+
       const mockSite = { id: 'site-456', name: 'Integration Test Site' };
       const element = NodeAppsInfo({ site: mockSite });
       const NodeAppsManager = element.type;
-      
+
       const instance = new NodeAppsManager({ site: mockSite });
-      
+
       // Initial state
       expect(instance.state.testResult).toBe('');
-      
-      // Simulate IPC test
+
+      // Simulate IPC test - testIPC calls get-apps
       mockElectron.ipcRenderer.invoke.mockResolvedValue({
         success: true,
-        message: 'Integration test successful'
+        apps: [{ id: 'test-app', name: 'Test App' }]
       });
-      
+
       await instance.testIPC();
-      
+
       // Verify IPC was called correctly
       expect(mockElectron.ipcRenderer.invoke).toHaveBeenCalledWith(
-        'node-orchestrator:test',
+        'node-orchestrator:get-apps',
         {
-          siteId: 'site-456',
-          message: 'Testing IPC communication'
+          siteId: 'site-456'
         }
       );
     });

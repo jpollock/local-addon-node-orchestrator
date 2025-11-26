@@ -19,6 +19,9 @@ import { WordPressPluginManager } from './wordpress/WordPressPluginManager';
 import { BundledPluginDetector } from './wordpress/BundledPluginDetector';
 import { validateInstallCommand, validateStartCommand, validateBuildCommand } from '../security/validation';
 import { logger } from '../utils/logger';
+import { withTimeout, TIMEOUTS } from '../utils/timeout';
+import { getSafeEnv } from '../utils/safeEnv';
+import { getErrorMessage } from '../utils/errorUtils';
 
 export interface InstallProgress {
   phase: 'detecting' | 'installing' | 'building' | 'installing-plugins' | 'complete';
@@ -77,6 +80,12 @@ export class NodeAppManager {
    * Maps operation key (e.g., "start:appId") to the pending Promise
    */
   private operationLocks: Map<string, Promise<NodeApp>> = new Map();
+
+  /**
+   * Sync cache for apps - used by hooks that can't await async operations
+   * Updated whenever apps are loaded or modified
+   */
+  private appSyncCache: Map<string, NodeApp[]> = new Map();
 
   constructor(
     configManager: ConfigManager,
@@ -170,11 +179,18 @@ export class NodeAppManager {
         });
       }
 
-      const installResult = await this.installDependencies(
-        workingPath,
-        appConfig.installCommand || `${packageManager} install`,
-        onProgress
-      );
+      const installResult = await withTimeout(
+        this.installDependencies(
+          workingPath,
+          appConfig.installCommand || `${packageManager} install`,
+          onProgress
+        ),
+        TIMEOUTS.NPM_INSTALL,
+        'npm install timed out after 10 minutes'
+      ).catch((error) => ({
+        success: false,
+        error: error.message
+      }));
 
       if (!installResult.success) {
         // Clean up on install failure
@@ -202,7 +218,14 @@ export class NodeAppManager {
           });
         }
 
-        const buildResult = await this.buildApp(workingPath, buildCommand, onProgress);
+        const buildResult = await withTimeout(
+          this.buildApp(workingPath, buildCommand, onProgress),
+          TIMEOUTS.BUILD_COMMAND,
+          'Build timed out after 5 minutes'
+        ).catch((error) => ({
+          success: false,
+          error: error.message
+        }));
 
         if (!buildResult.success) {
           // Clean up on build failure
@@ -314,8 +337,12 @@ export class NodeAppManager {
               needsStop = true;
             }
 
-            // Wait for database to be ready
-            const dbReady = await this.siteDatabase.waitForDB(site);
+            // Wait for database to be ready (with timeout)
+            const dbReady = await withTimeout(
+              this.siteDatabase.waitForDB(site),
+              TIMEOUTS.DATABASE_READY,
+              'Database readiness check timed out after 30 seconds'
+            ).catch(() => false);
             if (!dbReady) {
               logger.nodeApp.warn('Database not ready, skipping plugin activation');
             } else {
@@ -328,8 +355,8 @@ export class NodeAppManager {
                   } else {
                     logger.nodeApp.warn('Failed to activate plugin', { slug: pluginConfig.slug, error: result.error });
                   }
-                } catch (activationError: any) {
-                  logger.nodeApp.warn('Error activating plugin', { slug: pluginConfig.slug, error: activationError.message });
+                } catch (activationError: unknown) {
+                  logger.nodeApp.warn('Error activating plugin', { slug: pluginConfig.slug, error: getErrorMessage(activationError) });
                 }
               }
             }
@@ -375,6 +402,10 @@ export class NodeAppManager {
       // Step 6: Save configuration (use expanded sitePath)
       await this.configManager.saveApp(site.id, sitePath, app);
 
+      // Update sync cache after modification
+      const allApps = await this.configManager.loadApps(site.id, sitePath);
+      this.appSyncCache.set(site.id, allApps);
+
       if (onProgress) {
         onProgress({
           phase: 'complete',
@@ -388,8 +419,8 @@ export class NodeAppManager {
       // Clean up on any error
       try {
         await fs.remove(appPath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
+      } catch (cleanupError: unknown) {
+        logger.nodeApp.warn('Cleanup failed after app installation error', { appPath, error: getErrorMessage(cleanupError) });
       }
 
       throw error;
@@ -428,6 +459,10 @@ export class NodeAppManager {
     // Save updated configuration
     await this.configManager.saveApp(siteId, sitePath, updatedApp);
 
+    // Update sync cache after modification
+    const allApps = await this.configManager.loadApps(siteId, sitePath);
+    this.appSyncCache.set(siteId, allApps);
+
     logger.nodeApp.info('Updated app', { appId, updates });
 
     // Restart if it was running
@@ -457,6 +492,11 @@ export class NodeAppManager {
 
     // Remove from config (Local's Ports service handles port cleanup)
     await this.configManager.removeApp(siteId, sitePath, appId);
+
+    // Update sync cache after modification
+    const allApps = await this.configManager.loadApps(siteId, sitePath);
+    this.appSyncCache.set(siteId, allApps);
+
     logger.nodeApp.info('Removed app', { appId });
   }
 
@@ -469,6 +509,9 @@ export class NodeAppManager {
     for (const app of apps) {
       await this.removeApp(siteId, sitePath, app.id);
     }
+
+    // Clear sync cache after removing all apps
+    this.appSyncCache.delete(siteId);
   }
 
   /**
@@ -543,7 +586,6 @@ export class NodeAppManager {
 
       // Use validated and sanitized command
       let [command, ...args] = commandValidation.sanitizedCommand!;
-      let useShell = false;
 
       // Handle package manager commands (npm, yarn, pnpm, npx)
       if (NpmManager.isPackageManagerCommand(command)) {
@@ -626,7 +668,7 @@ export class NodeAppManager {
       // Create logs directory in site's logs folder (proper location)
       // Ensure sitePath is absolute (expand ~ if present)
       const absoluteSitePath = sitePath.startsWith('~')
-        ? path.join(process.env.HOME || '', sitePath.slice(1))
+        ? path.join(os.homedir(), sitePath.slice(1))
         : sitePath;
 
       const logsDir = path.join(absoluteSitePath, 'logs', 'node-apps');
@@ -647,11 +689,10 @@ export class NodeAppManager {
       logStream.write(`========================================\n\n`);
 
       // Spawn process with security: shell: false prevents command injection
-      // Exception: use shell for system npm commands to find them in PATH
       const child = spawn(command, args, {
         cwd: appDir,
         env,
-        shell: useShell, // Only true for system package managers
+        shell: false,
         detached: false
       });
 
@@ -819,16 +860,33 @@ export class NodeAppManager {
    * Get all apps for a site
    */
   async getAppsForSite(siteId: string, sitePath: string): Promise<NodeApp[]> {
-    return await this.configManager.loadApps(siteId, sitePath);
+    const apps = await this.configManager.loadApps(siteId, sitePath);
+    // Update sync cache for use by hooks
+    this.appSyncCache.set(siteId, apps);
+    return apps;
   }
 
   /**
-   * Get synchronous version for sites (used in hooks)
+   * Get synchronous version for sites (used by hooks that can't await)
+   * Returns cached apps or empty array if not yet loaded
    */
-  getAppsForSiteSync(_siteId: string): NodeApp[] {
-    // This is a simplified sync version for hooks
-    // In production, this should use a cache
-    return [];
+  getAppsForSiteSync(siteId: string): NodeApp[] {
+    return this.appSyncCache.get(siteId) || [];
+  }
+
+  /**
+   * Update the sync cache for a site
+   * Called after app modifications to keep cache current
+   */
+  updateSyncCache(siteId: string, apps: NodeApp[]): void {
+    this.appSyncCache.set(siteId, apps);
+  }
+
+  /**
+   * Clear the sync cache for a site
+   */
+  clearSyncCache(siteId: string): void {
+    this.appSyncCache.delete(siteId);
   }
 
   /**
@@ -1072,10 +1130,11 @@ export class NodeAppManager {
       const child = spawn(command, args, {
         cwd,
         shell: false,
-        env: { ...process.env }
+        env: getSafeEnv()
       });
 
       let errorOutput = '';
+      const MAX_ERROR_BUFFER = 1024 * 1024; // 1MB limit for error output
 
       child.stdout?.on('data', (data) => {
         const output = data.toString();
@@ -1084,7 +1143,10 @@ export class NodeAppManager {
 
       child.stderr?.on('data', (data) => {
         const output = data.toString();
-        errorOutput += output;
+        // Limit error buffer size to prevent memory exhaustion
+        if (errorOutput.length < MAX_ERROR_BUFFER) {
+          errorOutput += output.slice(0, MAX_ERROR_BUFFER - errorOutput.length);
+        }
         if (onOutput) onOutput(output);
       });
 

@@ -24,6 +24,7 @@ import {
 } from './security/schemas';
 import { logAndSanitizeError } from './security/errors';
 import { initializeLogger, logger } from './utils/logger';
+import { withTimeout, TIMEOUTS } from './utils/timeout';
 
 export default function (context: LocalMain.AddonMainContext): void {
   const { localLogger, siteData, siteProcessManager, siteDatabase, ports, wpCli } = LocalMain.getServiceContainer().cradle;
@@ -48,9 +49,10 @@ export default function (context: LocalMain.AddonMainContext): void {
       const apps = await appManager.getAppsForSite(site.id, site.path);
       const autoStartApps = apps.filter(app => app.autoStart);
 
-      for (const app of autoStartApps) {
-        await appManager.startApp(site.id, site.path, app.id, site);
-      }
+      // Start all apps in parallel for faster site startup
+      await Promise.all(autoStartApps.map(app =>
+        appManager.startApp(site.id, site.path, app.id, site)
+      ));
 
       localLogger.log('info', `Started ${autoStartApps.length} Node.js apps for ${site.name}`);
 
@@ -638,7 +640,11 @@ export default function (context: LocalMain.AddonMainContext): void {
       });
 
       try {
-        const dbReady = await siteDatabase.waitForDB(site);
+        const dbReady = await withTimeout(
+          siteDatabase.waitForDB(site),
+          TIMEOUTS.DATABASE_READY,
+          'Database readiness check timed out after 30 seconds'
+        );
 
         if (!dbReady) {
           throw new Error('Database failed to become ready');
@@ -749,7 +755,11 @@ export default function (context: LocalMain.AddonMainContext): void {
       });
 
       try {
-        const dbReady = await siteDatabase.waitForDB(site);
+        const dbReady = await withTimeout(
+          siteDatabase.waitForDB(site),
+          TIMEOUTS.DATABASE_READY,
+          'Database readiness check timed out after 30 seconds'
+        );
 
         if (!dbReady) {
           throw new Error('Database failed to become ready');

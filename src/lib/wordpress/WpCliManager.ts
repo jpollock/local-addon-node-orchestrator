@@ -5,6 +5,7 @@
 
 import * as Local from '@getflywheel/local';
 import { logger } from '../../utils/logger';
+import { isValidPluginSlug } from '../../security/validation';
 
 export interface WpCliResult {
   success: boolean;
@@ -83,8 +84,8 @@ export class WpCliManager {
       }
     }
 
-    // Check for shell metacharacters in arguments
-    const shellMetaChars = /[;&|`$()<>\\'"]/;
+    // Check for shell metacharacters and null bytes in arguments
+    const shellMetaChars = /[;&|`$()<>\\'"\x00]/;
     for (const arg of args) {
       if (shellMetaChars.test(arg)) {
         return {
@@ -192,8 +193,8 @@ export class WpCliManager {
    * Activate a plugin
    */
   async activatePlugin(site: Local.Site, slug: string): Promise<WpCliResult> {
-    // Validate plugin slug
-    if (!this.isValidPluginSlug(slug)) {
+    // Validate plugin slug using consolidated security function
+    if (!isValidPluginSlug(slug)) {
       return {
         success: false,
         error: 'Invalid plugin slug format'
@@ -207,8 +208,8 @@ export class WpCliManager {
    * Deactivate a plugin
    */
   async deactivatePlugin(site: Local.Site, slug: string): Promise<WpCliResult> {
-    // Validate plugin slug
-    if (!this.isValidPluginSlug(slug)) {
+    // Validate plugin slug using consolidated security function
+    if (!isValidPluginSlug(slug)) {
       return {
         success: false,
         error: 'Invalid plugin slug format'
@@ -255,8 +256,8 @@ export class WpCliManager {
    * Delete a plugin (must be deactivated first)
    */
   async deletePlugin(site: Local.Site, slug: string): Promise<WpCliResult> {
-    // Validate plugin slug
-    if (!this.isValidPluginSlug(slug)) {
+    // Validate plugin slug using consolidated security function
+    if (!isValidPluginSlug(slug)) {
       return {
         success: false,
         error: 'Invalid plugin slug format'
@@ -264,24 +265,5 @@ export class WpCliManager {
     }
 
     return await this.execute(site, 'plugin', ['delete', slug]);
-  }
-
-  /**
-   * Validate plugin slug format
-   * Plugin slugs should only contain alphanumeric characters, hyphens, and underscores
-   */
-  private isValidPluginSlug(slug: string): boolean {
-    if (!slug || typeof slug !== 'string') {
-      return false;
-    }
-
-    // Length check
-    if (slug.length === 0 || slug.length > 200) {
-      return false;
-    }
-
-    // Format check: alphanumeric, hyphens, underscores only
-    const validSlugPattern = /^[a-z0-9_-]+$/i;
-    return validSlugPattern.test(slug);
   }
 }

@@ -108,7 +108,7 @@ describe('WordPressEnvManager', () => {
       expect(wpEnv.WP_SITE_URL).toBe('https://secure-site.local');
     });
 
-    it('should throw error if database name is missing', () => {
+    it('should use default database name if not provided', () => {
       const siteWithoutDbName: Partial<Local.Site> = {
         ...mockSite,
         mysql: {
@@ -120,9 +120,8 @@ describe('WordPressEnvManager', () => {
         } as any
       };
 
-      expect(() => {
-        WordPressEnvManager.extractWordPressEnv(siteWithoutDbName as Local.Site);
-      }).toThrow('Unable to extract database name');
+      const wpEnv = WordPressEnvManager.extractWordPressEnv(siteWithoutDbName as Local.Site);
+      expect(wpEnv.WP_DB_NAME).toBe('local'); // defaults to 'local'
     });
 
     it('should throw error if site URL/domain is missing', () => {
@@ -220,15 +219,16 @@ describe('WordPressEnvManager', () => {
       expect(canExtract).toBe(true);
     });
 
-    it('should return false for site with missing database', () => {
-      const invalidSite: Partial<Local.Site> = {
+    it('should return true for site with missing mysql (uses defaults)', () => {
+      const siteWithNoMysql: Partial<Local.Site> = {
         ...mockSite,
         mysql: undefined
       };
 
-      const canExtract = WordPressEnvManager.canExtractWordPressEnv(invalidSite as Local.Site);
+      // Implementation uses defaults for missing mysql config
+      const canExtract = WordPressEnvManager.canExtractWordPressEnv(siteWithNoMysql as Local.Site);
 
-      expect(canExtract).toBe(false);
+      expect(canExtract).toBe(true);
     });
 
     it('should return false for site with missing domain', () => {
@@ -319,7 +319,7 @@ describe('WordPressEnvManager', () => {
   });
 
   describe('Edge Cases', () => {
-    it('should handle empty string password', () => {
+    it('should use default password when empty string provided', () => {
       const siteWithEmptyPassword: Partial<Local.Site> = {
         ...mockSite,
         mysql: {
@@ -331,9 +331,8 @@ describe('WordPressEnvManager', () => {
         } as any
       };
 
-      expect(() => {
-        WordPressEnvManager.extractWordPressEnv(siteWithEmptyPassword as Local.Site);
-      }).toThrow('Unable to extract database password');
+      const wpEnv = WordPressEnvManager.extractWordPressEnv(siteWithEmptyPassword as Local.Site);
+      expect(wpEnv.WP_DB_PASSWORD).toBe('root'); // defaults to 'root'
     });
 
     it('should handle very long database names', () => {

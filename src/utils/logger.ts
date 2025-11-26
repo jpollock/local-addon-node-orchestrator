@@ -109,6 +109,7 @@ export const logger = {
   main: createLogger('Main'),
   nodeApp: createLogger('NodeAppManager'),
   npm: createLogger('NpmManager'),
+  git: createLogger('GitManager'),
   wpCli: createLogger('WpCliManager'),
   wpPlugin: createLogger('WordPressPluginManager'),
   config: createLogger('ConfigManager'),

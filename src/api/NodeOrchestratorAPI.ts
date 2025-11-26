@@ -297,7 +297,7 @@ export class NodeOrchestratorAPI {
    * @returns Promise resolving to array of WordPressPlugins
    */
   async getPlugins(): Promise<WordPressPlugin[]> {
-    return await this.configManager.getPlugins(this.site.id, this.site.path);
+    return await this.configManager.loadPlugins(this.site.id, this.site.path);
   }
 
   /**

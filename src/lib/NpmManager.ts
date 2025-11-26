@@ -8,22 +8,38 @@
  * This ensures users don't need Node.js installed, but benefits from it when they do.
  */
 
-import { spawn, execSync } from 'child_process';
+import { spawn, exec } from 'child_process';
+import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import { logger } from '../utils/logger';
+import { getSafeEnv } from '../utils/safeEnv';
+
+const execAsync = promisify(exec);
 
 export type NpmType = 'system' | 'bundled';
 
+/**
+ * Information about the npm installation being used
+ */
 export interface NpmInfo {
+  /** Whether system npm or bundled npm is being used */
   type: NpmType;
+  /** Absolute path to the npm executable or npm-cli.js */
   path: string;
+  /** npm version string if available */
   version?: string;
 }
 
+/**
+ * Options for npm command execution
+ */
 export interface NpmOptions {
+  /** Working directory where npm commands will run */
   cwd: string;
+  /** Callback for command output (stdout/stderr) */
   onProgress?: (output: string) => void;
+  /** Additional environment variables to pass to npm */
   env?: Record<string, string>;
 }
 
@@ -35,15 +51,15 @@ export class NpmManager {
   private static FORCE_BUNDLED_NPM = process.env.FORCE_BUNDLED_NPM === 'true';
 
   /**
-   * Resolve the full path to system npm executable
+   * Resolve the full path to system npm executable (async)
    * Uses 'which' on Unix or 'where' on Windows to find npm in PATH
    * Returns null if npm is not found
    */
-  private resolveSystemNpmPath(): string | null {
+  private async resolveSystemNpmPath(): Promise<string | null> {
     try {
       const command = process.platform === 'win32' ? 'where npm' : 'which npm';
-      const result = execSync(command, { encoding: 'utf-8', timeout: 3000 });
-      const npmPath = result.trim().split('\n')[0]; // Take first result
+      const { stdout } = await execAsync(command, { encoding: 'utf-8', timeout: 3000 });
+      const npmPath = stdout.trim().split('\n')[0]; // Take first result
 
       if (npmPath && fs.existsSync(npmPath)) {
         return npmPath;
@@ -64,8 +80,8 @@ export class NpmManager {
       return false;
     }
 
-    // Resolve npm path synchronously (fast operation)
-    const npmPath = this.resolveSystemNpmPath();
+    // Resolve npm path asynchronously (doesn't block event loop)
+    const npmPath = await this.resolveSystemNpmPath();
 
     if (!npmPath) {
       logger.npm.debug('System npm not found in PATH');
@@ -137,8 +153,18 @@ export class NpmManager {
   }
 
   /**
-   * Get npm information (system or bundled)
-   * Caches the result for performance
+   * Get npm information (system or bundled).
+   * Caches the result for performance.
+   *
+   * @returns Promise resolving to NpmInfo with type and path
+   * @throws {Error} If npm is not found in system or bundled location
+   *
+   * @example
+   * ```typescript
+   * const npmManager = new NpmManager();
+   * const info = await npmManager.getNpmInfo();
+   * console.log(`Using ${info.type} npm at ${info.path}`);
+   * ```
    */
   async getNpmInfo(): Promise<NpmInfo> {
     if (this.cachedNpmInfo) {
@@ -177,14 +203,41 @@ export class NpmManager {
   }
 
   /**
-   * Run npm install in a project directory
+   * Run npm install in a project directory.
+   *
+   * @param options - Options including working directory and progress callback
+   * @throws {Error} If npm install fails
+   *
+   * @example
+   * ```typescript
+   * await npmManager.install({
+   *   cwd: '/path/to/project',
+   *   onProgress: (output) => console.log(output)
+   * });
+   * ```
    */
   async install(options: NpmOptions): Promise<void> {
     return this.runCommand(['install'], options);
   }
 
   /**
-   * Run npm command with arguments
+   * Run an npm command with arguments.
+   *
+   * @param args - npm command arguments (e.g., ['run', 'build'])
+   * @param options - Options including working directory and progress callback
+   * @throws {Error} If npm command fails
+   *
+   * @example
+   * ```typescript
+   * // Run npm run build
+   * await npmManager.runCommand(['run', 'build'], { cwd: '/path/to/project' });
+   *
+   * // Run npm test with progress
+   * await npmManager.runCommand(['test'], {
+   *   cwd: '/path/to/project',
+   *   onProgress: (output) => console.log(output)
+   * });
+   * ```
    */
   async runCommand(args: string[], options: NpmOptions): Promise<void> {
     const npmInfo = await this.getNpmInfo();
@@ -214,31 +267,42 @@ export class NpmManager {
       const child = spawn(npmPath, args, {
         cwd: options.cwd,
         env: {
-          ...process.env,
+          ...getSafeEnv(),
           ...options.env
         },
         shell: false, // Security: use resolved path, no shell injection risk
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
-      // Capture output for progress callback
-      if (options.onProgress) {
-        child.stdout?.on('data', (data) => {
-          options.onProgress!(data.toString());
-        });
+      // Always capture stderr for error messages
+      let stderrOutput = '';
+      const MAX_STDERR_BUFFER = 64 * 1024; // 64KB limit for error output
 
-        child.stderr?.on('data', (data) => {
-          options.onProgress!(data.toString());
-        });
-      }
+      child.stdout?.on('data', (data) => {
+        if (options.onProgress) {
+          options.onProgress(data.toString());
+        }
+      });
+
+      child.stderr?.on('data', (data) => {
+        const output = data.toString();
+        if (options.onProgress) {
+          options.onProgress(output);
+        }
+        // Buffer stderr for error messages (with size limit)
+        if (stderrOutput.length < MAX_STDERR_BUFFER) {
+          stderrOutput += output.slice(0, MAX_STDERR_BUFFER - stderrOutput.length);
+        }
+      });
 
       child.on('exit', (code) => {
         if (code === 0) {
           logger.npm.debug('npm completed successfully', { command: args[0] });
           resolve();
         } else {
-          const error = new Error(`npm ${args.join(' ')} failed with exit code ${code}`);
-          logger.npm.error('npm command failed', { error: error.message });
+          const errorDetails = stderrOutput ? `\n${stderrOutput.trim()}` : '';
+          const error = new Error(`npm ${args.join(' ')} failed with exit code ${code}${errorDetails}`);
+          logger.npm.error('npm command failed', { error: error.message, stderr: stderrOutput });
           reject(error);
         }
       });
@@ -260,38 +324,49 @@ export class NpmManager {
       const child = spawn(process.execPath, [npmCliPath, ...args], {
         cwd: options.cwd,
         env: {
-          ...process.env,
+          ...getSafeEnv(),
           ...options.env,
           // Critical: Tell Electron to run as Node.js
           ELECTRON_RUN_AS_NODE: '1',
           // Configure npm to use project directory
           NPM_CONFIG_PREFIX: options.cwd,
           NPM_CONFIG_CACHE: path.join(options.cwd, '.npm-cache'),
-          // Inherit PATH for npm to find system tools
-          PATH: process.env.PATH
+          // Ensure PATH is always available for npm to find system tools
+          PATH: process.env.PATH || ''
         },
         shell: false,  // Security: prevent command injection
         stdio: ['ignore', 'pipe', 'pipe']
       });
 
-      // Capture output for progress callback
-      if (options.onProgress) {
-        child.stdout?.on('data', (data) => {
-          options.onProgress!(data.toString());
-        });
+      // Always capture stderr for error messages
+      let stderrOutput = '';
+      const MAX_STDERR_BUFFER = 64 * 1024; // 64KB limit for error output
 
-        child.stderr?.on('data', (data) => {
-          options.onProgress!(data.toString());
-        });
-      }
+      child.stdout?.on('data', (data) => {
+        if (options.onProgress) {
+          options.onProgress(data.toString());
+        }
+      });
+
+      child.stderr?.on('data', (data) => {
+        const output = data.toString();
+        if (options.onProgress) {
+          options.onProgress(output);
+        }
+        // Buffer stderr for error messages (with size limit)
+        if (stderrOutput.length < MAX_STDERR_BUFFER) {
+          stderrOutput += output.slice(0, MAX_STDERR_BUFFER - stderrOutput.length);
+        }
+      });
 
       child.on('exit', (code) => {
         if (code === 0) {
           logger.npm.debug('bundled npm completed successfully', { command: args[0] });
           resolve();
         } else {
-          const error = new Error(`Bundled npm ${args.join(' ')} failed with exit code ${code}`);
-          logger.npm.error('bundled npm command failed', { error: error.message });
+          const errorDetails = stderrOutput ? `\n${stderrOutput.trim()}` : '';
+          const error = new Error(`Bundled npm ${args.join(' ')} failed with exit code ${code}${errorDetails}`);
+          logger.npm.error('bundled npm command failed', { error: error.message, stderr: stderrOutput });
           reject(error);
         }
       });
@@ -304,7 +379,17 @@ export class NpmManager {
   }
 
   /**
-   * Check if a command is a package manager command (npm, yarn, pnpm, npx)
+   * Check if a command is a package manager command.
+   *
+   * @param command - The command to check (e.g., 'npm', 'yarn')
+   * @returns true if the command is npm, npx, yarn, or pnpm
+   *
+   * @example
+   * ```typescript
+   * NpmManager.isPackageManagerCommand('npm');   // true
+   * NpmManager.isPackageManagerCommand('yarn');  // true
+   * NpmManager.isPackageManagerCommand('node');  // false
+   * ```
    */
   static isPackageManagerCommand(command: string): boolean {
     return ['npm', 'npx', 'yarn', 'pnpm'].includes(command);

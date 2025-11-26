@@ -4,6 +4,7 @@
  */
 
 import * as path from 'path';
+import * as fs from 'fs';
 
 /**
  * Allowed commands and their permitted subcommands
@@ -257,6 +258,34 @@ export function validateAppId(appId: string): PathValidationResult {
 }
 
 /**
+ * Check if a path contains symlinks that escape the base directory
+ * This prevents symlink-based path traversal attacks
+ *
+ * @param targetPath - The path to check
+ * @param basePath - The base directory that must contain the final resolved path
+ * @returns true if path is safe (no escaping symlinks), false otherwise
+ */
+function isPathSafeFromSymlinks(targetPath: string, basePath: string): boolean {
+  try {
+    // Check if path exists first
+    if (!fs.existsSync(targetPath)) {
+      // Path doesn't exist yet, which is fine for new directories
+      return true;
+    }
+
+    // Get the real path (resolves all symlinks)
+    const realPath = fs.realpathSync(targetPath);
+    const resolvedBase = fs.existsSync(basePath) ? fs.realpathSync(basePath) : path.resolve(basePath);
+
+    // Ensure the real path is within the base directory
+    return realPath.startsWith(resolvedBase + path.sep) || realPath === resolvedBase;
+  } catch {
+    // If we can't check (e.g., permission denied), fail safe
+    return false;
+  }
+}
+
+/**
  * Validates a file path to prevent path traversal attacks
  *
  * @param basePath - The base directory that the path should be within
@@ -306,6 +335,14 @@ export function validatePath(
     };
   }
 
+  // Check for symlinks that escape the base directory
+  if (!isPathSafeFromSymlinks(resolvedPath, basePath)) {
+    return {
+      valid: false,
+      error: `${pathDescription} contains symlinks that escape the base directory`
+    };
+  }
+
   return {
     valid: true,
     sanitizedPath: resolvedPath
@@ -331,4 +368,28 @@ export function validateAppPath(
 
   // Then validate the constructed path
   return validatePath(baseAppsDirectory, appId, 'app directory');
+}
+
+/**
+ * Validates a WordPress plugin slug for security
+ * Plugin slugs should only contain alphanumeric characters, hyphens, and underscores
+ * This is a consolidated validation function to ensure consistent security checks
+ *
+ * @param slug - The plugin slug to validate
+ * @returns true if valid, false otherwise
+ */
+export function isValidPluginSlug(slug: string): boolean {
+  if (!slug || typeof slug !== 'string') {
+    return false;
+  }
+
+  // Length check - WordPress plugin slugs have practical limits
+  if (slug.length === 0 || slug.length > 200) {
+    return false;
+  }
+
+  // Format check: lowercase alphanumeric, hyphens, underscores only
+  // Note: WordPress plugin slugs are case-insensitive but conventionally lowercase
+  const validSlugPattern = /^[a-z0-9_-]+$/i;
+  return validSlugPattern.test(slug);
 }

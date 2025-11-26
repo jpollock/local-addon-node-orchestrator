@@ -20,6 +20,7 @@ import {
   WpOrgPluginConfig
 } from '../../types';
 import { logger } from '../../utils/logger';
+import { isValidPluginSlug } from '../../security/validation';
 
 export interface PluginInstallProgress {
   phase: 'cloning' | 'downloading' | 'copying' | 'validating' | 'activating' | 'complete';
@@ -73,8 +74,8 @@ export class WordPressPluginManager {
     onProgress?: (event: PluginInstallProgress) => void,
     options?: { skipActivation?: boolean }
   ): Promise<WordPressPlugin> {
-    // Validate plugin slug
-    if (!this.isValidPluginSlug(config.slug)) {
+    // Validate plugin slug using consolidated security function
+    if (!isValidPluginSlug(config.slug)) {
       throw new Error('Invalid plugin slug. Must contain only lowercase letters, numbers, hyphens, and underscores.');
     }
 
@@ -730,26 +731,9 @@ export class WordPressPluginManager {
    */
   private hasPluginHeaders(content: string): boolean {
     // WordPress plugin headers typically include at minimum "Plugin Name:"
-    const pluginHeaderPattern = /\/\*\*[\s\S]*?Plugin Name:\s*.+[\s\S]*?\*\//i;
+    // Allow both /* */ and /** */ style comments
+    const pluginHeaderPattern = /\/\*\*?[\s\S]*?Plugin Name:\s*.+[\s\S]*?\*\//i;
     return pluginHeaderPattern.test(content);
-  }
-
-  /**
-   * Validate plugin slug format
-   */
-  private isValidPluginSlug(slug: string): boolean {
-    if (!slug || typeof slug !== 'string') {
-      return false;
-    }
-
-    // Length check
-    if (slug.length === 0 || slug.length > 200) {
-      return false;
-    }
-
-    // Format check: lowercase alphanumeric, hyphens, underscores only
-    const validSlugPattern = /^[a-z0-9_-]+$/;
-    return validSlugPattern.test(slug);
   }
 
   /**

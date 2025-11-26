@@ -8,15 +8,19 @@
  */
 export const TIMEOUTS = {
   /** Time to wait for process to start before considering it failed */
-  PROCESS_START: 3000,
+  PROCESS_START: 3_000,
   /** Graceful termination timeout (SIGTERM) */
-  KILL_GRACEFUL: 5000,
+  PROCESS_KILL: 5_000,
   /** Forceful termination timeout (SIGKILL) */
-  KILL_FORCE: 3000,
+  PROCESS_FORCE_KILL: 3_000,
   /** npm detection timeout */
-  NPM_DETECTION: 3000,
+  NPM_DETECTION: 3_000,
   /** Database ready wait timeout */
-  DB_READY: 30000,
+  DATABASE_READY: 30_000,
+  /** npm install timeout */
+  NPM_INSTALL: 600_000,
+  /** Build command timeout */
+  BUILD_COMMAND: 300_000,
 } as const;
 
 /**

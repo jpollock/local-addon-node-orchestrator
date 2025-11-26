@@ -54,8 +54,15 @@ export class ZipPluginInstaller {
 
     try {
       // Step 1: Get the zip file (download or read local)
-      if (zipUrl.startsWith('https://') || zipUrl.startsWith('http://')) {
+      if (zipUrl.startsWith('https://')) {
         tempZipPath = await this.downloadZip(zipUrl, onProgress);
+      } else if (zipUrl.startsWith('http://')) {
+        // Security: Block insecure HTTP downloads to prevent MITM attacks
+        return {
+          success: false,
+          extractedPath: '',
+          error: 'HTTP downloads are not allowed for security reasons. Please use HTTPS.'
+        };
       } else if (zipUrl.startsWith('file://')) {
         tempZipPath = this.parseFileUrl(zipUrl);
 
@@ -98,8 +105,24 @@ export class ZipPluginInstaller {
       const tempExtractDir = `${targetPath}-extract-temp`;
       await fs.ensureDir(tempExtractDir);
 
-      // Step 3: Extract zip file
-      await extract(tempZipPath, { dir: path.resolve(tempExtractDir) });
+      // Step 3: Extract zip file with path validation to prevent Zip Slip attacks
+      const resolvedExtractDir = path.resolve(tempExtractDir);
+      await extract(tempZipPath, {
+        dir: resolvedExtractDir,
+        // Validate each entry path to prevent path traversal (Zip Slip)
+        onEntry: (entry, zipfile) => {
+          const entryPath = path.join(resolvedExtractDir, entry.fileName);
+          const resolvedEntryPath = path.resolve(entryPath);
+
+          // Security check: ensure entry extracts within target directory
+          if (!resolvedEntryPath.startsWith(resolvedExtractDir + path.sep) &&
+              resolvedEntryPath !== resolvedExtractDir) {
+            // Close the zip file and throw to abort extraction
+            zipfile.close();
+            throw new Error(`Zip entry path escapes extraction directory: ${entry.fileName}`);
+          }
+        }
+      });
 
       // Step 4: Determine plugin structure
       const pluginDir = await this.findPluginDirectory(tempExtractDir);
@@ -119,7 +142,7 @@ export class ZipPluginInstaller {
       // Step 6: Clean up
       await fs.remove(tempExtractDir);
       // Only delete temporary downloads, not local files
-      if (zipUrl.startsWith('https://') || zipUrl.startsWith('http://')) {
+      if (zipUrl.startsWith('https://')) {
         await fs.remove(tempZipPath);
       }
 
@@ -128,10 +151,10 @@ export class ZipPluginInstaller {
         extractedPath: targetPath
       };
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Clean up on error
       // Only delete temporary downloads, not local files
-      if (tempZipPath && (zipUrl.startsWith('https://') || zipUrl.startsWith('http://'))) {
+      if (tempZipPath && zipUrl.startsWith('https://')) {
         try {
           await fs.remove(tempZipPath);
         } catch (e) {
@@ -314,12 +337,12 @@ export class ZipPluginInstaller {
   /**
    * Sanitize error messages
    */
-  private sanitizeError(error: any): string {
+  private sanitizeError(error: unknown): string {
     if (!error) {
       return 'Unknown error occurred';
     }
 
-    let message = error.message || String(error);
+    let message = error instanceof Error ? error.message : String(error);
 
     // Remove user paths
     message = message.replace(/\/Users\/[^/\s]+/g, '[USER]');

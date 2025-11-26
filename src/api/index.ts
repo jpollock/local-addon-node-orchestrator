@@ -8,7 +8,8 @@
  */
 
 // Main API class
-export { NodeOrchestratorAPI, AddNodeAppConfig, ProgressCallback } from './NodeOrchestratorAPI';
+export { NodeOrchestratorAPI } from './NodeOrchestratorAPI';
+export type { AddNodeAppConfig, ProgressCallback } from './NodeOrchestratorAPI';
 
 // Core types
 export type {

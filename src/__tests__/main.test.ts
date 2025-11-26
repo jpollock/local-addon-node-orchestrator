@@ -1,59 +1,101 @@
-import * as LocalMain from '@getflywheel/local/main';
-
-jest.mock('@getflywheel/local/main', () => ({
-  getServiceContainer: jest.fn(),
-  addIpcAsyncListener: jest.fn()
+// Mock electron before imports
+jest.mock('electron', () => ({
+  ipcMain: {
+    handle: jest.fn()
+  }
 }));
 
-describe('Node.js Orchestrator Main Process', () => {
+// Mock internal modules to prevent initialization side effects
+jest.mock('../lib/GitManager');
+jest.mock('../lib/NodeAppManager');
+jest.mock('../lib/ConfigManager');
+jest.mock('../lib/wordpress/WpCliManager');
+jest.mock('../lib/wordpress/WordPressPluginManager');
+jest.mock('../utils/logger', () => ({
+  initializeLogger: jest.fn(),
+  logger: {
+    main: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+    nodeApp: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+    wpPlugin: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+    git: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+    ipc: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+  }
+}));
+
+// Mock Local services - must be a factory function
+jest.mock('@getflywheel/local/main', () => ({
+  getServiceContainer: jest.fn()
+}));
+
+import * as LocalMain from '@getflywheel/local/main';
+import { ipcMain } from 'electron';
+
+describe('Node.js Orchestrator Main Process (Full Version)', () => {
   let mockContext: any;
   let mockLocalLogger: any;
+  let mockServices: any;
   let mainFunction: any;
 
   beforeEach(() => {
     jest.clearAllMocks();
 
     mockLocalLogger = {
-      log: jest.fn()
+      log: jest.fn(),
+      info: jest.fn(),
+      warn: jest.fn(),
+      error: jest.fn()
+    };
+
+    mockServices = {
+      localLogger: mockLocalLogger,
+      siteData: { getSite: jest.fn() },
+      siteProcessManager: { getSiteStatus: jest.fn() },
+      siteDatabase: { waitForDB: jest.fn() },
+      ports: { getAvailablePort: jest.fn() },
+      wpCli: { run: jest.fn() }
     };
 
     (LocalMain.getServiceContainer as jest.Mock).mockReturnValue({
-      cradle: {
-        localLogger: mockLocalLogger
-      }
+      cradle: mockServices
     });
 
     mockContext = {
       hooks: {
-        addAction: jest.fn()
+        addAction: jest.fn(),
+        addFilter: jest.fn()
       }
     };
 
-    mainFunction = require('../main').default;
+    // Clear module cache and re-require to get fresh instance with new mocks
+    jest.resetModules();
+
+    // Re-apply mocks after module reset
+    jest.doMock('@getflywheel/local/main', () => ({
+      getServiceContainer: jest.fn().mockReturnValue({
+        cradle: mockServices
+      })
+    }));
+
+    jest.doMock('electron', () => ({
+      ipcMain: {
+        handle: jest.fn()
+      }
+    }));
+
+    mainFunction = require('../main-full').default;
   });
 
   describe('Initialization', () => {
     it('should initialize the addon successfully', () => {
-      mainFunction(mockContext);
-
-      expect(mockLocalLogger.log).toHaveBeenCalledWith(
-        'info',
-        'Node.js Orchestrator addon loaded (minimal version)'
-      );
-
-      expect(mockLocalLogger.log).toHaveBeenCalledWith(
-        'info',
-        'Node.js Orchestrator initialized successfully'
-      );
+      expect(() => mainFunction(mockContext)).not.toThrow();
     });
 
-    it('should register IPC listener for test command', () => {
+    it('should initialize logger with Local logger service', () => {
+      const { initializeLogger } = require('../utils/logger');
+
       mainFunction(mockContext);
 
-      expect(LocalMain.addIpcAsyncListener).toHaveBeenCalledWith(
-        'node-orchestrator:test',
-        expect.any(Function)
-      );
+      expect(initializeLogger).toHaveBeenCalledWith(mockLocalLogger);
     });
   });
 
@@ -67,21 +109,6 @@ describe('Node.js Orchestrator Main Process', () => {
       );
     });
 
-    it('should log when site starts', () => {
-      mainFunction(mockContext);
-
-      const siteStartedCallback = mockContext.hooks.addAction.mock.calls
-        .find((call: any) => call[0] === 'siteStarted')[1];
-
-      const mockSite = { name: 'test-site', id: 'site-123' };
-      siteStartedCallback(mockSite);
-
-      expect(mockLocalLogger.log).toHaveBeenCalledWith(
-        'info',
-        'Site test-site started - Node.js Orchestrator ready'
-      );
-    });
-
     it('should register siteStopping hook', () => {
       mainFunction(mockContext);
 
@@ -90,52 +117,55 @@ describe('Node.js Orchestrator Main Process', () => {
         expect.any(Function)
       );
     });
-
-    it('should log when site stops', () => {
-      mainFunction(mockContext);
-
-      const siteStoppingCallback = mockContext.hooks.addAction.mock.calls
-        .find((call: any) => call[0] === 'siteStopping')[1];
-
-      const mockSite = { name: 'test-site', id: 'site-123' };
-      siteStoppingCallback(mockSite);
-
-      expect(mockLocalLogger.log).toHaveBeenCalledWith(
-        'info',
-        'Site test-site stopping - cleaning up Node.js apps'
-      );
-    });
   });
 
-  describe('IPC Communication', () => {
-    it('should handle test IPC message', async () => {
+  describe('IPC Handlers', () => {
+    it('should register IPC handlers for node app operations', () => {
       mainFunction(mockContext);
 
-      const ipcHandler = (LocalMain.addIpcAsyncListener as jest.Mock).mock.calls[0][1];
-      const testData = { siteId: 'site-123', message: 'Testing' };
-
-      const result = await ipcHandler(testData);
-
-      expect(mockLocalLogger.log).toHaveBeenCalledWith(
-        'info',
-        'Test IPC received',
-        testData
+      const { ipcMain: mockedIpcMain } = require('electron');
+      const registeredHandlers = (mockedIpcMain.handle as jest.Mock).mock.calls.map(
+        (call: any) => call[0]
       );
 
-      expect(result).toEqual({
-        success: true,
-        message: 'Node.js Orchestrator is working!'
-      });
+      expect(registeredHandlers).toContain('node-orchestrator:add-app');
+      expect(registeredHandlers).toContain('node-orchestrator:start-app');
+      expect(registeredHandlers).toContain('node-orchestrator:stop-app');
+      expect(registeredHandlers).toContain('node-orchestrator:remove-app');
+      expect(registeredHandlers).toContain('node-orchestrator:get-apps');
+    });
+
+    it('should register IPC handlers for plugin operations', () => {
+      mainFunction(mockContext);
+
+      const { ipcMain: mockedIpcMain } = require('electron');
+      const registeredHandlers = (mockedIpcMain.handle as jest.Mock).mock.calls.map(
+        (call: any) => call[0]
+      );
+
+      expect(registeredHandlers).toContain('node-orchestrator:install-plugin');
+      expect(registeredHandlers).toContain('node-orchestrator:activate-plugin');
+      expect(registeredHandlers).toContain('node-orchestrator:deactivate-plugin');
+      expect(registeredHandlers).toContain('node-orchestrator:remove-plugin');
+      expect(registeredHandlers).toContain('node-orchestrator:get-plugins');
     });
   });
 
   describe('Error Handling', () => {
-    it('should handle missing logger gracefully', () => {
-      (LocalMain.getServiceContainer as jest.Mock).mockReturnValue({
-        cradle: {}
-      });
+    it('should handle missing services gracefully', () => {
+      // Reset and setup mocks for missing services scenario
+      jest.resetModules();
 
-      expect(() => mainFunction(mockContext)).toThrow();
+      jest.doMock('@getflywheel/local/main', () => ({
+        getServiceContainer: jest.fn().mockReturnValue({
+          cradle: {}
+        })
+      }));
+
+      const newMainFunction = require('../main-full').default;
+
+      // Should throw when services are missing
+      expect(() => newMainFunction(mockContext)).toThrow();
     });
 
     it('should handle missing hooks context', () => {

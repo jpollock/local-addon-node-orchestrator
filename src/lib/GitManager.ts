@@ -6,6 +6,8 @@
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
 import * as fs from 'fs-extra';
+import { logger } from '../utils/logger';
+import { getErrorMessage } from '../utils/errorUtils';
 
 export interface GitCloneOptions {
   url: string;
@@ -133,8 +135,8 @@ export class GitManager {
         if (await fs.pathExists(targetPath)) {
           await fs.remove(targetPath);
         }
-      } catch (cleanupError) {
-        // Ignore cleanup errors
+      } catch (cleanupError: unknown) {
+        logger.git.warn('Cleanup failed after git clone error', { targetPath, error: getErrorMessage(cleanupError) });
       }
 
       return {

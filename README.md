@@ -1,16 +1,22 @@
 # Local Node.js Orchestrator Addon
 
-Manage Node.js applications alongside your WordPress sites in Local. Start, stop, and monitor Node.js apps from git repositories with your WordPress development.
+![Beta](https://img.shields.io/badge/status-beta-orange)
+![License](https://img.shields.io/badge/license-MIT-blue)
+![Local](https://img.shields.io/badge/Local-v6.0%2B-green)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue)
 
-## 📚 Project Documentation
+Run Node.js applications alongside your WordPress sites in Local. Clone apps from git repositories, manage their lifecycle, and seamlessly integrate with WordPress.
 
-**New to the project?** Start here:
-- **[INDEX.md](./INDEX.md)** - Complete documentation index (start here!)
-- **[QUICK_START_GUIDE.md](./QUICK_START_GUIDE.md)** - Developer quick reference
-- **[EXECUTION_PLAN.md](./EXECUTION_PLAN.md)** - v3.0 development plan
-- **[ROADMAP_VISUAL.md](./ROADMAP_VISUAL.md)** - Visual timeline and milestones
+## Documentation
 
-**Current Status**: v2.0.0 ✅ | **Next Milestone**: v2.1.0-beta.1 (WordPress Integration)
+| Guide | Description |
+|-------|-------------|
+| [User Guide](docs/USER_GUIDE.md) | Installation, configuration, and usage |
+| [Developer Guide](docs/DEVELOPER_GUIDE.md) | Architecture, patterns, and contributing |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Common issues and solutions |
+| [API Reference](API.md) | IPC channels and data types |
+| [Contributing](CONTRIBUTING.md) | How to contribute |
+| [Changelog](CHANGELOG.md) | Version history |
 
 ## Features
 
