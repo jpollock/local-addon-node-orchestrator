@@ -3,23 +3,33 @@
   "productName": "Node.js Orchestrator",
   "version": "2.0.0",
   "description": "Manage Node.js applications alongside WordPress sites in Local",
-  "main": "lib/main-full.js",
+  "main": "lib/main.js",
   "renderer": "lib/renderer.js",
   "exports": {
-    ".": "./lib/main-full.js",
+    ".": "./lib/main.js",
     "./api": "./lib/api/index.js"
   },
   "types": "lib/api/index.d.ts",
+  "engines": {
+    "node": ">=18.0.0",
+    "local": ">=9.0.0"
+  },
   "scripts": {
-    "build": "npm run clean && npm run compile",
-    "build:minimal": "npm run clean && npm run compile",
+    "build": "npm run clean && npm run compile && npm run create-entry-points",
+    "build:minimal": "npm run clean && npm run compile && npm run create-entry-points",
     "compile": "tsc -p .",
+    "create-entry-points": "node scripts/create-entry-points.js",
     "watch": "tsc -p . --watch",
-    "clean": "rm -rf lib",
+    "clean": "rm -rf lib coverage",
     "dev": "npm run watch",
     "test": "jest",
+    "test:coverage": "jest --coverage",
+    "test:watch": "jest --watch",
     "type-check": "tsc --noEmit",
-    "lint": "eslint src/**/*.{ts,tsx}",
+    "lint": "eslint src --ext .ts,.tsx",
+    "lint:fix": "eslint src --ext .ts,.tsx --fix",
+    "format": "prettier --write \"src/**/*.{ts,tsx}\"",
+    "format:check": "prettier --check \"src/**/*.{ts,tsx}\"",
     "postinstall": "npm run build:minimal"
   },
   "keywords": [
@@ -58,7 +68,7 @@
     "tree-kill": "^1.2.2",
     "uuid": "^9.0.1",
     "winston": "^3.11.0",
-    "zod": "^4.1.12"
+    "zod": "^3.23.8"
   },
   "peerDependencies": {
     "react": "^18.0.0",

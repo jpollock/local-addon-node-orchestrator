@@ -25,6 +25,12 @@ export interface ZipInstallResult {
 }
 
 /**
+ * Maximum number of redirects to follow during download
+ * Prevents DoS via redirect loops and open redirect attacks
+ */
+const MAX_REDIRECTS = 5;
+
+/**
  * ZipPluginInstaller
  * Downloads, extracts, and validates WordPress plugins from zip files
  */
@@ -142,12 +148,21 @@ export class ZipPluginInstaller {
   }
 
   /**
-   * Download zip file from remote URL
+   * Download zip file from remote URL with redirect limit
+   * @param url - URL to download from
+   * @param onProgress - Progress callback
+   * @param redirectCount - Current redirect count (internal use)
    */
   private async downloadZip(
     url: string,
-    onProgress?: (progress: ZipDownloadProgress) => void
+    onProgress?: (progress: ZipDownloadProgress) => void,
+    redirectCount: number = 0
   ): Promise<string> {
+    // Security: Check redirect limit to prevent DoS and open redirect attacks
+    if (redirectCount > MAX_REDIRECTS) {
+      throw new Error(`Too many redirects (max ${MAX_REDIRECTS})`);
+    }
+
     return new Promise((resolve, reject) => {
       const tempDir = path.join(process.env.TMPDIR || '/tmp', 'node-orchestrator');
       fs.ensureDirSync(tempDir);
@@ -158,13 +173,13 @@ export class ZipPluginInstaller {
       const protocol = url.startsWith('https://') ? https : http;
 
       const request = protocol.get(url, (response) => {
-        // Handle redirects
+        // Handle redirects with limit check
         if (response.statusCode === 301 || response.statusCode === 302) {
           const redirectUrl = response.headers.location;
           if (redirectUrl) {
             file.close();
             fs.removeSync(tempFilePath);
-            this.downloadZip(redirectUrl, onProgress)
+            this.downloadZip(redirectUrl, onProgress, redirectCount + 1)
               .then(resolve)
               .catch(reject);
             return;

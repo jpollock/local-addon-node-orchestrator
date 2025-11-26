@@ -13,12 +13,13 @@ import { WpCliManager, WpCliResult } from './WpCliManager';
 import { ZipPluginInstaller } from './ZipPluginInstaller';
 import {
   WordPressPlugin,
-  PluginConfig,
+  PluginConfigInput,
   BundledPluginConfig,
   GitPluginConfig,
   ZipPluginConfig,
   WpOrgPluginConfig
 } from '../../types';
+import { logger } from '../../utils/logger';
 
 export interface PluginInstallProgress {
   phase: 'cloning' | 'downloading' | 'copying' | 'validating' | 'activating' | 'complete';
@@ -68,7 +69,7 @@ export class WordPressPluginManager {
    */
   async installPlugin(
     site: Local.Site,
-    config: PluginConfig & { name?: string },
+    config: PluginConfigInput,
     onProgress?: (event: PluginInstallProgress) => void,
     options?: { skipActivation?: boolean }
   ): Promise<WordPressPlugin> {
@@ -84,15 +85,15 @@ export class WordPressPluginManager {
 
     // Check if plugin already exists
     if (await fs.pathExists(pluginInstallPath)) {
-      console.log(`[WordPressPluginManager] Plugin directory exists at: ${pluginInstallPath}`);
+      logger.wpPlugin.debug('Plugin directory exists', { pluginInstallPath });
 
       // Check if it's a valid plugin installation
       const validationResult = await this.validatePluginStructure(pluginInstallPath, config.slug);
-      console.log(`[WordPressPluginManager] Validation result for ${config.slug}:`, validationResult);
+      logger.wpPlugin.debug('Plugin validation result', { slug: config.slug, valid: validationResult.valid });
 
       if (validationResult.valid) {
         // Plugin already exists and is valid - return existing plugin info
-        console.log(`[WordPressPluginManager] Plugin ${config.slug} already installed, skipping installation`);
+        logger.wpPlugin.info('Plugin already installed, skipping installation', { slug: config.slug });
         const pluginInfo = await this.wpCliManager.getPluginStatus(site, config.slug);
         return {
           id: uuidv4(),
@@ -106,39 +107,57 @@ export class WordPressPluginManager {
         };
       } else {
         // Directory exists but is empty or invalid - remove and reinstall
-        console.log(`[WordPressPluginManager] Plugin directory ${config.slug} exists but is invalid, removing and reinstalling`);
+        logger.wpPlugin.info('Plugin directory exists but is invalid, removing and reinstalling', { slug: config.slug });
         await fs.remove(pluginInstallPath);
       }
     } else {
-      console.log(`[WordPressPluginManager] Plugin directory does not exist at: ${pluginInstallPath}`);
+      logger.wpPlugin.debug('Plugin directory does not exist', { pluginInstallPath });
     }
 
     // Ensure plugins directory exists
     await fs.ensureDir(pluginsDir);
 
-    // If skipActivation is set, override autoActivate to false
-    const effectiveConfig = options?.skipActivation
-      ? { ...config, autoActivate: false }
-      : config;
+    // Apply defaults for optional fields and handle skipActivation
+    const autoActivate = options?.skipActivation ? false : (config.autoActivate ?? true);
 
     // Dispatch to appropriate installation method based on source
     let pluginResult: WordPressPlugin;
 
-    switch (effectiveConfig.source) {
+    switch (config.source) {
       case 'bundled':
-        pluginResult = await this.installFromBundled(site, effectiveConfig, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromBundled(
+          site,
+          { ...config, autoActivate },
+          pluginInstallPath,
+          onProgress
+        );
         break;
       case 'git':
-        pluginResult = await this.installFromGit(site, effectiveConfig, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromGit(
+          site,
+          { ...config, autoActivate, branch: config.branch ?? 'main' },
+          pluginInstallPath,
+          onProgress
+        );
         break;
       case 'zip':
-        pluginResult = await this.installFromZip(site, effectiveConfig, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromZip(
+          site,
+          { ...config, autoActivate },
+          pluginInstallPath,
+          onProgress
+        );
         break;
       case 'wporg':
-        pluginResult = await this.installFromWpOrg(site, effectiveConfig, pluginInstallPath, onProgress);
+        pluginResult = await this.installFromWpOrg(
+          site,
+          { ...config, autoActivate },
+          pluginInstallPath,
+          onProgress
+        );
         break;
       default:
-        throw new Error(`Unsupported plugin source: ${(effectiveConfig as any).source}`);
+        throw new Error(`Unsupported plugin source: ${(config as any).source}`);
     }
 
     return pluginResult;
@@ -520,7 +539,7 @@ export class WordPressPluginManager {
     if (activateResult.success) {
       return 'active';
     } else {
-      console.warn(`Plugin installed but activation failed: ${activateResult.error}`);
+      logger.wpPlugin.warn('Plugin installed but activation failed', { slug, error: activateResult.error });
       return 'installed';
     }
   }
@@ -602,7 +621,7 @@ export class WordPressPluginManager {
   async updatePlugin(
     site: Local.Site,
     plugin: WordPressPlugin,
-    config: PluginConfig & { name?: string },
+    config: PluginConfigInput,
     onProgress?: (event: PluginInstallProgress) => void
   ): Promise<WordPressPlugin> {
     try {

@@ -13,7 +13,8 @@ const BasePluginConfigSchema = z.object({
     .min(1, 'Plugin slug is required')
     .max(200, 'Plugin slug too long')
     .regex(/^[a-z0-9_-]+$/, 'Plugin slug must contain only lowercase letters, numbers, hyphens, and underscores'),
-  autoActivate: z.boolean().optional().default(true),
+  // Note: .default() without .optional() allows undefined input but guarantees boolean output
+  autoActivate: z.boolean().default(true),
 });
 
 /**
@@ -30,7 +31,8 @@ const BundledPluginConfigSchema = BasePluginConfigSchema.extend({
 const GitPluginConfigSchema = BasePluginConfigSchema.extend({
   source: z.literal('git'),
   url: z.string().url('Invalid Git URL'),
-  branch: z.string().min(1, 'Branch name is required').default('main'),
+  // Note: .default() allows undefined input but guarantees string output
+  branch: z.string().default('main'),
 });
 
 /**
@@ -87,7 +89,7 @@ export const PluginConfigSchema = z.discriminatedUnion('source', [
  */
 const NodeConfigSchema = z.object({
   startCommand: z.string().optional(),
-  autoStart: z.boolean().optional().default(false),
+  autoStart: z.boolean().default(false),
   port: z.number().int().min(1024).max(65535).optional(),
   env: z.record(z.string(), z.string()).optional(),
 });
@@ -96,7 +98,7 @@ const NodeConfigSchema = z.object({
  * WordPress configuration section
  */
 const WordPressConfigSchema = z.object({
-  plugins: z.array(PluginConfigSchema).optional().default([]),
+  plugins: z.array(PluginConfigSchema).default([]),
 });
 
 /**

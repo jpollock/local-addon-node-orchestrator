@@ -97,14 +97,14 @@ export const AddAppRequestSchema = z.object({
   app: z.object({
     name: appNameSchema,
     gitUrl: gitUrlSchema,
-    branch: branchSchema.optional().default('main'),
-    installCommand: autoDetectCommandSchema.optional().default(''),
+    branch: branchSchema.default('main'),
+    installCommand: autoDetectCommandSchema.default(''),
     buildCommand: optionalCommandSchema,
-    startCommand: commandSchema.optional().default('npm start'),
+    startCommand: commandSchema.default('npm start'),
     nodeVersion: nodeVersionSchema.optional(),
-    autoStart: z.boolean().optional().default(false),
-    injectWpEnv: z.boolean().optional().default(true), // Default to true - auto-inject WP env vars
-    env: envSchema.optional().default({})
+    autoStart: z.boolean().default(false),
+    injectWpEnv: z.boolean().default(true), // Default to true - auto-inject WP env vars
+    env: envSchema.default({})
   })
 });
 
@@ -145,7 +145,7 @@ export const GetAppsRequestSchema = z.object({
 export const GetLogsRequestSchema = z.object({
   siteId: siteIdSchema,
   appId: appIdSchema,
-  lines: z.number().int().positive().max(10000).optional().default(100)
+  lines: z.number().int().positive().max(10000).default(100)
 });
 
 /**

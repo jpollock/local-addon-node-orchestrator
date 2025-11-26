@@ -4,6 +4,7 @@
  */
 
 import * as Local from '@getflywheel/local';
+import { logger } from '../../utils/logger';
 
 export interface WpCliResult {
   success: boolean;
@@ -181,8 +182,8 @@ export class WpCliManager {
         title: plugin.title
       }));
 
-    } catch (error) {
-      console.error('Failed to list plugins:', error);
+    } catch (error: any) {
+      logger.wpCli.error('Failed to list plugins', { error: error.message });
       return [];
     }
   }

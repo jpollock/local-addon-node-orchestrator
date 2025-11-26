@@ -23,12 +23,15 @@ import {
   validate
 } from './security/schemas';
 import { logAndSanitizeError } from './security/errors';
+import { initializeLogger, logger } from './utils/logger';
 
 export default function (context: LocalMain.AddonMainContext): void {
   const { localLogger, siteData, siteProcessManager, siteDatabase, ports, wpCli } = LocalMain.getServiceContainer().cradle;
 
-  console.log('[Node Orchestrator] Main addon loading...');
-  console.log('[Node Orchestrator] Available hooks:', Object.keys(context.hooks || {}));
+  // Initialize centralized logger with Local's logger
+  initializeLogger(localLogger);
+
+  logger.main.info('Main addon loading...', { hooks: Object.keys(context.hooks || {}) });
 
   // Initialize managers
   const configManager = new ConfigManager();
@@ -37,7 +40,7 @@ export default function (context: LocalMain.AddonMainContext): void {
   const pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
   const appManager = new NodeAppManager(configManager, gitManager, ports, pluginManager, siteProcessManager, siteDatabase);
 
-  console.log('[Node Orchestrator] Managers initialized');
+  logger.main.info('Managers initialized');
 
   // Site lifecycle hooks
   context.hooks.addAction('siteStarted', async (site: Local.Site) => {
@@ -91,7 +94,6 @@ export default function (context: LocalMain.AddonMainContext): void {
   // Try multiple hook names to ensure we catch site stopping
   const stopAppsForSite = async (site: Local.Site, hookName: string) => {
     try {
-      console.log(`[Node Orchestrator] ${hookName} hook fired for ${site.name}`);
       localLogger.log('info', `${hookName} - checking for Node.js apps to stop`, { siteName: site.name, siteId: site.id });
 
       const apps = await appManager.getAppsForSite(site.id, site.path);
@@ -101,20 +103,16 @@ export default function (context: LocalMain.AddonMainContext): void {
       let stoppedCount = 0;
       for (const app of apps) {
         try {
-          console.log(`[Node Orchestrator] Stopping app ${app.name} (${app.id})`);
           localLogger.log('info', `Attempting to stop app ${app.name}`, { appId: app.id, status: app.status });
           await appManager.stopApp(site.id, site.path, app.id);
           stoppedCount++;
         } catch (error) {
-          console.error(`[Node Orchestrator] Failed to stop ${app.name}:`, error);
           localLogger.error(`Failed to stop app ${app.name}`, { error, appId: app.id });
         }
       }
 
-      console.log(`[Node Orchestrator] Stopped ${stoppedCount} apps for ${site.name}`);
       localLogger.log('info', `Stopped ${stoppedCount} Node.js apps for ${site.name}`);
     } catch (error) {
-      console.error(`[Node Orchestrator] Error in ${hookName}:`, error);
       localLogger.error('Failed to stop Node.js apps', { error, siteId: site.id });
     }
   };
@@ -123,46 +121,37 @@ export default function (context: LocalMain.AddonMainContext): void {
   // Using synchronous callbacks (Kitchen Sink pattern) - don't await in hook
   context.hooks.addAction('siteStopping', (site: Local.Site) => {
     try {
-      console.log(`[Node Orchestrator] siteStopping hook fired for ${site.name}`);
-      stopAppsForSite(site, 'siteStopping').catch((error: any) => {
-        console.error('[Node Orchestrator] Error in siteStopping:', error);
+      stopAppsForSite(site, 'siteStopping').catch((error: unknown) => {
         localLogger.error('Error stopping apps in siteStopping hook', { error, siteId: site.id });
       });
     } catch (error) {
-      console.error('[Node Orchestrator] Synchronous error in siteStopping hook:', error);
       localLogger.error('Synchronous error in siteStopping hook', { error, siteId: site.id });
     }
   });
 
   context.hooks.addAction('siteStopped', (site: Local.Site) => {
     try {
-      console.log(`[Node Orchestrator] siteStopped hook fired for ${site.name}`);
-      stopAppsForSite(site, 'siteStopped').catch((error: any) => {
-        console.error('[Node Orchestrator] Error in siteStopped:', error);
+      stopAppsForSite(site, 'siteStopped').catch((error: unknown) => {
         localLogger.error('Error stopping apps in siteStopped hook', { error, siteId: site.id });
       });
     } catch (error) {
-      console.error('[Node Orchestrator] Synchronous error in siteStopped hook:', error);
       localLogger.error('Synchronous error in siteStopped hook', { error, siteId: site.id });
     }
   });
 
   context.hooks.addAction('siteStop', (site: Local.Site) => {
     try {
-      console.log(`[Node Orchestrator] siteStop hook fired for ${site.name}`);
-      stopAppsForSite(site, 'siteStop').catch((error: any) => {
-        console.error('[Node Orchestrator] Error in siteStop:', error);
+      stopAppsForSite(site, 'siteStop').catch((error: unknown) => {
         localLogger.error('Error stopping apps in siteStop hook', { error, siteId: site.id });
       });
     } catch (error) {
-      console.error('[Node Orchestrator] Synchronous error in siteStop hook:', error);
       localLogger.error('Synchronous error in siteStop hook', { error, siteId: site.id });
     }
   });
 
   context.hooks.addAction('siteDeleting', (site: Local.Site) => {
     try {
-      console.log(`[Node Orchestrator] siteDeleting hook fired for ${site.name}`);
+      localLogger.log('info', 'siteDeleting hook fired', { siteName: site.name, siteId: site.id });
       appManager.removeAllAppsForSite(site.id, site.path)
         .then(() => {
           localLogger.log('info', `Cleaned up Node.js apps for ${site.name}`);

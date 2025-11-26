@@ -13,7 +13,7 @@ import { WpCliManager } from '../lib/wordpress/WpCliManager';
 import {
   NodeApp,
   AddAppRequest,
-  PluginConfig,
+  PluginConfigInput,
   WordPressPlugin
 } from '../types';
 import { GitProgressEvent } from '../lib/GitManager';
@@ -91,19 +91,21 @@ export class NodeOrchestratorAPI {
   constructor(site: Local.Site) {
     this.site = site;
 
-    // Get Local's Ports service
-    const { ports } = LocalMain.getServiceContainer().cradle;
+    // Get services from Local's service container
+    const { ports, wpCli, siteProcessManager, siteDatabase } = LocalMain.getServiceContainer().cradle;
 
     // Initialize managers (same pattern as main-full.ts)
     this.configManager = new ConfigManager();
     const gitManager = new GitManager();
-    const wpCliManager = new WpCliManager();
+    const wpCliManager = new WpCliManager(wpCli);
     this.pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
     this.appManager = new NodeAppManager(
       this.configManager,
       gitManager,
       ports,
-      this.pluginManager
+      this.pluginManager,
+      siteProcessManager,
+      siteDatabase
     );
   }
 
@@ -239,7 +241,7 @@ export class NodeOrchestratorAPI {
    * ```
    */
   async addPlugin(
-    config: PluginConfig & { name?: string },
+    config: PluginConfigInput,
     onProgress?: (event: PluginInstallProgress) => void
   ): Promise<WordPressPlugin> {
     const plugin = await this.pluginManager.installPlugin(this.site, config, onProgress);

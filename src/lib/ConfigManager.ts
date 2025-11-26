@@ -6,19 +6,70 @@
 import * as path from 'path';
 import * as fs from 'fs-extra';
 import { NodeApp, SiteNodeApps, WordPressPlugin, SiteWordPressPlugins } from '../types';
+import { logger } from '../utils/logger';
 
 export interface ConfigManagerOptions {
   configPath?: string;
 }
 
+/**
+ * Cache entry with timestamp for TTL checking
+ */
+interface CacheEntry<T> {
+  data: T;
+  timestamp: number;
+}
+
+/**
+ * Cache configuration constants
+ */
+const CACHE_TTL_MS = 60000;  // 1 minute TTL
+const MAX_CACHE_SIZE = 100;  // Maximum cache entries
+
 export class ConfigManager {
   private configPath: string;
-  private configCache: Map<string, SiteNodeApps> = new Map();
-  private pluginCache: Map<string, SiteWordPressPlugins> = new Map();
+  private configCache: Map<string, CacheEntry<SiteNodeApps>> = new Map();
+  private pluginCache: Map<string, CacheEntry<SiteWordPressPlugins>> = new Map();
 
   constructor(options: ConfigManagerOptions = {}) {
     // Default config path can be overridden for testing
     this.configPath = options.configPath || '';
+  }
+
+  /**
+   * Get cached value with TTL check
+   * Returns null if entry doesn't exist or has expired
+   */
+  private getCached<T>(cache: Map<string, CacheEntry<T>>, key: string): T | null {
+    const entry = cache.get(key);
+    if (!entry) return null;
+
+    // Check if entry has expired
+    if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+      cache.delete(key);
+      return null;
+    }
+
+    return entry.data;
+  }
+
+  /**
+   * Set cached value with timestamp and enforce size limits
+   */
+  private setCached<T>(cache: Map<string, CacheEntry<T>>, key: string, data: T): void {
+    // Enforce cache size limit - remove oldest entries if needed
+    if (cache.size >= MAX_CACHE_SIZE && !cache.has(key)) {
+      // Remove oldest entry (first entry in Map maintains insertion order)
+      const oldestKey = cache.keys().next().value;
+      if (oldestKey) {
+        cache.delete(oldestKey);
+      }
+    }
+
+    cache.set(key, {
+      data,
+      timestamp: Date.now()
+    });
   }
 
   /**
@@ -54,8 +105,8 @@ export class ConfigManager {
    */
   async loadApps(siteId: string, sitePath: string): Promise<NodeApp[]> {
     try {
-      // Check cache first
-      const cached = this.configCache.get(siteId);
+      // Check cache first (with TTL)
+      const cached = this.getCached(this.configCache, siteId);
       if (cached) {
         return cached.apps;
       }
@@ -76,13 +127,13 @@ export class ConfigManager {
         throw new Error('Invalid config file structure');
       }
 
-      // Cache the result
-      this.configCache.set(siteId, config);
+      // Cache the result (with TTL and size limit)
+      this.setCached(this.configCache, siteId, config);
 
       return config.apps;
     } catch (error: any) {
       // If file is corrupt or invalid, start fresh
-      console.error(`Failed to load config for site ${siteId}:`, error);
+      logger.config.error('Failed to load config for site', { siteId, error: error.message });
       return [];
     }
   }
@@ -107,8 +158,8 @@ export class ConfigManager {
       // Write to file with pretty formatting
       await fs.writeJson(configFile, config, { spaces: 2 });
 
-      // Update cache
-      this.configCache.set(siteId, config);
+      // Update cache (with TTL and size limit)
+      this.setCached(this.configCache, siteId, config);
     } catch (error: any) {
       throw new Error(`Failed to save config for site ${siteId}: ${error.message}`);
     }
@@ -220,8 +271,8 @@ export class ConfigManager {
    */
   async loadPlugins(siteId: string, sitePath: string): Promise<WordPressPlugin[]> {
     try {
-      // Check cache first
-      const cached = this.pluginCache.get(siteId);
+      // Check cache first (with TTL)
+      const cached = this.getCached(this.pluginCache, siteId);
       if (cached) {
         return cached.plugins;
       }
@@ -242,13 +293,13 @@ export class ConfigManager {
         throw new Error('Invalid plugins config file structure');
       }
 
-      // Cache the result
-      this.pluginCache.set(siteId, config);
+      // Cache the result (with TTL and size limit)
+      this.setCached(this.pluginCache, siteId, config);
 
       return config.plugins;
     } catch (error: any) {
       // If file is corrupt or invalid, start fresh
-      console.error(`Failed to load plugins config for site ${siteId}:`, error);
+      logger.config.error('Failed to load plugins config for site', { siteId, error: error.message });
       return [];
     }
   }
@@ -273,8 +324,8 @@ export class ConfigManager {
       // Write to file with pretty formatting
       await fs.writeJson(configFile, config, { spaces: 2 });
 
-      // Update cache
-      this.pluginCache.set(siteId, config);
+      // Update cache (with TTL and size limit)
+      this.setCached(this.pluginCache, siteId, config);
     } catch (error: any) {
       throw new Error(`Failed to save plugins config for site ${siteId}: ${error.message}`);
     }

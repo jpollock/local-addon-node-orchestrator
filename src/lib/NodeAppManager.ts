@@ -18,12 +18,48 @@ import { WordPressEnvManager } from './wordpress/WordPressEnvManager';
 import { WordPressPluginManager } from './wordpress/WordPressPluginManager';
 import { BundledPluginDetector } from './wordpress/BundledPluginDetector';
 import { validateInstallCommand, validateStartCommand, validateBuildCommand } from '../security/validation';
+import { logger } from '../utils/logger';
 
 export interface InstallProgress {
   phase: 'detecting' | 'installing' | 'building' | 'installing-plugins' | 'complete';
   progress: number;
   message: string;
 }
+
+/**
+ * Tracks a running process with its associated log stream
+ * Ensures proper cleanup of both resources
+ */
+interface ManagedProcess {
+  child: ChildProcess;
+  logStream: fs.WriteStream;
+}
+
+/**
+ * Timeout constants for process management
+ */
+const KILL_TIMEOUT_MS = 5000; // 5 seconds timeout for process termination
+
+/**
+ * Wraps tree-kill with a timeout to prevent hanging on unresponsive processes
+ */
+const treeKillWithTimeout = (
+  pid: number,
+  signal: string,
+  timeoutMs: number = KILL_TIMEOUT_MS
+): Promise<void> => {
+  return Promise.race([
+    new Promise<void>((resolve, reject) => {
+      treeKill(pid, signal, (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    }),
+    new Promise<void>((_, reject) =>
+      setTimeout(() => reject(new Error(`Kill timeout after ${timeoutMs}ms`)), timeoutMs)
+    )
+  ]);
+};
 
 export class NodeAppManager {
   private configManager: ConfigManager;
@@ -34,7 +70,13 @@ export class NodeAppManager {
   private pluginDetector: BundledPluginDetector;
   private siteProcessManager: any; // Local.SiteProcessManager from service container
   private siteDatabase: any; // Local.SiteDatabase from service container
-  private runningProcesses: Map<string, ChildProcess> = new Map();
+  private runningProcesses: Map<string, ManagedProcess> = new Map();
+
+  /**
+   * Operation locks to prevent race conditions
+   * Maps operation key (e.g., "start:appId") to the pending Promise
+   */
+  private operationLocks: Map<string, Promise<NodeApp>> = new Map();
 
   constructor(
     configManager: ConfigManager,
@@ -145,7 +187,7 @@ export class NodeAppManager {
       if (!buildCommand) {
         const detectedBuildCommand = await this.detectBuildCommand(workingPath, packageManager);
         if (detectedBuildCommand) {
-          console.log(`[NodeAppManager] Auto-detected build command: ${detectedBuildCommand}`);
+          logger.nodeApp.info('Auto-detected build command', { buildCommand: detectedBuildCommand });
           buildCommand = detectedBuildCommand;
         }
       }
@@ -184,37 +226,42 @@ export class NodeAppManager {
             });
           }
 
-          console.log(`[NodeAppManager] Detected ${detectionResult.plugins.length} bundled plugin(s) from ${detectionResult.source}`);
+          logger.nodeApp.info('Detected bundled plugins', { count: detectionResult.plugins.length, source: detectionResult.source });
 
-          // Install each detected plugin
-          for (let i = 0; i < detectionResult.plugins.length; i++) {
-            const pluginConfig = detectionResult.plugins[i];
-
-            if (onProgress) {
-              onProgress({
-                phase: 'installing-plugins',
-                progress: 70 + (i / detectionResult.plugins.length) * 15,
-                message: `Installing plugin: ${pluginConfig.slug}...`
-              });
-            }
+          // Prepare plugin configs (resolve paths) before parallel installation
+          const preparedPlugins = detectionResult.plugins.map((pluginConfig: any) => {
+            const prepared = { ...pluginConfig };
 
             // For bundled plugins, resolve the path relative to the cloned repo
-            if (pluginConfig.source === 'bundled') {
-              pluginConfig.path = path.join(appPath, pluginConfig.path);
+            if (prepared.source === 'bundled') {
+              prepared.path = path.join(appPath, prepared.path);
             }
 
             // For zip plugins with relative paths, resolve relative to cloned repo
-            if (pluginConfig.source === 'zip') {
-              const url = pluginConfig.url;
+            if (prepared.source === 'zip') {
+              const url = prepared.url;
               // Check if it's a relative path (not https:// or file://)
               if (!url.startsWith('https://') && !url.startsWith('file://')) {
                 // Convert to absolute file:// URL
                 const absolutePath = path.resolve(appPath, url);
-                pluginConfig.url = `file://${absolutePath}`;
+                prepared.url = `file://${absolutePath}`;
               }
             }
 
-            // Install the plugin (skip activation - we'll handle it in Step 5a after starting the site)
+            return prepared;
+          });
+
+          // Install all plugins in parallel for better performance
+          let completedCount = 0;
+          const installPromises = preparedPlugins.map(async (pluginConfig: any) => {
+            if (onProgress) {
+              onProgress({
+                phase: 'installing-plugins',
+                progress: 70 + (completedCount / preparedPlugins.length) * 15,
+                message: `Installing plugin: ${pluginConfig.slug}...`
+              });
+            }
+
             const installedPlugin = await this.pluginManager.installPlugin(
               site,
               {
@@ -226,7 +273,7 @@ export class NodeAppManager {
                 if (onProgress) {
                   onProgress({
                     phase: 'installing-plugins',
-                    progress: 70 + (i / detectionResult.plugins.length) * 15,
+                    progress: 70 + (completedCount / preparedPlugins.length) * 15,
                     message: pluginProgress.message
                   });
                 }
@@ -234,14 +281,17 @@ export class NodeAppManager {
               { skipActivation: true } // Activation handled separately after site starts
             );
 
-            bundledPluginIds.push(installedPlugin.id);
-            console.log(`[NodeAppManager] Installed bundled plugin: ${installedPlugin.slug} (${installedPlugin.id})`);
-          }
+            completedCount++;
+            logger.nodeApp.info('Installed bundled plugin', { slug: installedPlugin.slug, id: installedPlugin.id });
+            return installedPlugin;
+          });
+
+          const installedPlugins = await Promise.all(installPromises);
+          bundledPluginIds.push(...installedPlugins.map(p => p.id));
         }
       } catch (pluginError: any) {
         // Log plugin installation errors but don't fail the entire app installation
-        console.error(`[NodeAppManager] Failed to install bundled plugins: ${pluginError.message}`);
-        console.error(pluginError);
+        logger.nodeApp.error('Failed to install bundled plugins', { error: pluginError.message });
         // Continue with app installation even if plugins fail
       }
 
@@ -251,56 +301,55 @@ export class NodeAppManager {
           const pluginsToActivate = detectionResult.plugins.filter((p: any) => p.autoActivate);
 
           if (pluginsToActivate.length > 0) {
-          console.log(`[NodeAppManager] Activating ${pluginsToActivate.length} plugin(s) with autoActivate: true`);
+            logger.nodeApp.info('Activating plugins with autoActivate: true', { count: pluginsToActivate.length });
 
-          // Check site state and start if needed
-          const siteStatus = this.siteProcessManager.getSiteStatus(site);
-          const wasRunning = siteStatus === 'running';
-          let needsStop = false;
+            // Check site state and start if needed
+            const siteStatus = this.siteProcessManager.getSiteStatus(site);
+            const wasRunning = siteStatus === 'running';
+            let needsStop = false;
 
-          if (!wasRunning) {
-            console.log(`[NodeAppManager] Site not running, starting temporarily for plugin activation`);
-            await this.siteProcessManager.start(site);
-            needsStop = true;
-          }
+            if (!wasRunning) {
+              logger.nodeApp.info('Site not running, starting temporarily for plugin activation');
+              await this.siteProcessManager.start(site);
+              needsStop = true;
+            }
 
-          // Wait for database to be ready
-          const dbReady = await this.siteDatabase.waitForDB(site);
-          if (!dbReady) {
-            console.warn(`[NodeAppManager] Database not ready, skipping plugin activation`);
-          } else {
-            // Activate each plugin
-            for (const pluginConfig of pluginsToActivate) {
-              try {
-                const result = await this.pluginManager.activatePlugin(site, pluginConfig.slug);
-                if (result.success) {
-                  console.log(`[NodeAppManager] Activated plugin: ${pluginConfig.slug}`);
-                } else {
-                  console.warn(`[NodeAppManager] Failed to activate plugin ${pluginConfig.slug}: ${result.error}`);
+            // Wait for database to be ready
+            const dbReady = await this.siteDatabase.waitForDB(site);
+            if (!dbReady) {
+              logger.nodeApp.warn('Database not ready, skipping plugin activation');
+            } else {
+              // Activate each plugin
+              for (const pluginConfig of pluginsToActivate) {
+                try {
+                  const result = await this.pluginManager.activatePlugin(site, pluginConfig.slug);
+                  if (result.success) {
+                    logger.nodeApp.info('Activated plugin', { slug: pluginConfig.slug });
+                  } else {
+                    logger.nodeApp.warn('Failed to activate plugin', { slug: pluginConfig.slug, error: result.error });
+                  }
+                } catch (activationError: any) {
+                  logger.nodeApp.warn('Error activating plugin', { slug: pluginConfig.slug, error: activationError.message });
                 }
-              } catch (activationError: any) {
-                console.warn(`[NodeAppManager] Error activating plugin ${pluginConfig.slug}:`, activationError.message);
               }
             }
-          }
 
-          // Restore site state - stop if we started it
-          if (needsStop) {
-            console.log(`[NodeAppManager] Stopping site (restoring original state)`);
-            await this.siteProcessManager.stop(site, { dumpDatabase: false });
-          }
+            // Restore site state - stop if we started it
+            if (needsStop) {
+              logger.nodeApp.info('Stopping site (restoring original state)');
+              await this.siteProcessManager.stop(site, { dumpDatabase: false });
+            }
           }
         }
       } catch (activationError: any) {
         // Log activation errors but don't fail the entire app installation
-        console.error(`[NodeAppManager] Failed to activate bundled plugins: ${activationError.message}`);
-        console.error(activationError);
+        logger.nodeApp.error('Failed to activate bundled plugins', { error: activationError.message });
         // Continue with app installation even if activation fails
       }
 
       // Step 6: Allocate port using Local's Ports service
       const port = await this.portsService.getAvailablePort();
-      console.log(`[NodeAppManager] Allocated port ${port} for app ${appId} via Local's Ports service`);
+      logger.nodeApp.info('Allocated port via Local Ports service', { port, appId });
 
       // Step 7: Create app configuration
       const app: NodeApp = {
@@ -379,7 +428,7 @@ export class NodeAppManager {
     // Save updated configuration
     await this.configManager.saveApp(siteId, sitePath, updatedApp);
 
-    console.log(`[NodeAppManager] Updated app ${appId}`, updates);
+    logger.nodeApp.info('Updated app', { appId, updates });
 
     // Restart if it was running
     if (wasRunning) {
@@ -408,7 +457,7 @@ export class NodeAppManager {
 
     // Remove from config (Local's Ports service handles port cleanup)
     await this.configManager.removeApp(siteId, sitePath, appId);
-    console.log(`[NodeAppManager] Removed app ${appId}`);
+    logger.nodeApp.info('Removed app', { appId });
   }
 
   /**
@@ -423,9 +472,35 @@ export class NodeAppManager {
   }
 
   /**
-   * Start an app
+   * Start an app with operation locking to prevent race conditions
+   * If a start operation is already in progress for this app, returns the existing promise
    */
   async startApp(siteId: string, sitePath: string, appId: string, site?: any): Promise<NodeApp> {
+    const lockKey = `start:${appId}`;
+
+    // Check if an operation is already in progress
+    const existingOperation = this.operationLocks.get(lockKey);
+    if (existingOperation) {
+      logger.nodeApp.debug('Start operation already in progress, returning existing promise', { appId });
+      return existingOperation;
+    }
+
+    // Create the operation promise and store it
+    const operation = this.startAppInternal(siteId, sitePath, appId, site);
+    this.operationLocks.set(lockKey, operation);
+
+    try {
+      return await operation;
+    } finally {
+      // Clean up the lock when operation completes (success or failure)
+      this.operationLocks.delete(lockKey);
+    }
+  }
+
+  /**
+   * Internal start app implementation
+   */
+  private async startAppInternal(siteId: string, sitePath: string, appId: string, site?: any): Promise<NodeApp> {
     const app = await this.configManager.getApp(siteId, sitePath, appId);
 
     if (!app) {
@@ -434,13 +509,13 @@ export class NodeAppManager {
 
     // Check if already running (status check)
     if (app.status === 'running') {
-      console.log(`[NodeAppManager] App ${app.name} is already running (status check)`);
+      logger.nodeApp.info('App is already running (status check)', { appName: app.name, appId });
       return app; // Already running
     }
 
     // Check if process already exists (defensive check for duplicate starts)
     if (this.runningProcesses.has(appId)) {
-      console.log(`[NodeAppManager] App ${app.name} already has a running process (defensive check)`);
+      logger.nodeApp.info('App already has a running process (defensive check)', { appName: app.name, appId });
       // Update status to match reality
       app.status = 'running';
       await this.configManager.saveApp(siteId, sitePath, app);
@@ -478,26 +553,42 @@ export class NodeAppManager {
           // Use bundled npm with Local's Node.js
           command = process.execPath;
           args = [npmInfo.path, ...args];
-          console.log(`[NodeAppManager] Using bundled npm: ${npmInfo.path}`);
+          logger.nodeApp.debug('Using bundled npm', { npmPath: npmInfo.path });
         } else {
-          // Use system npm
-          useShell = true; // Need shell to find npm in PATH
-          console.log(`[NodeAppManager] Using system npm`);
+          // Use system npm with resolved path (shell: false for security)
+          const resolvedNpmPath = this.npmManager.getResolvedNpmPath();
+          if (resolvedNpmPath) {
+            command = resolvedNpmPath;
+            // args stays the same (e.g., ['start'] for 'npm start')
+            logger.nodeApp.debug('Using system npm with resolved path', { npmPath: resolvedNpmPath });
+          } else {
+            // Fallback: if path resolution failed, throw error
+            throw new Error('System npm detected but path resolution failed');
+          }
         }
       } else if (command === 'node') {
         // Use Local's bundled Node.js for direct node commands
         command = process.execPath;
-        console.log(`[NodeAppManager] Using Local's bundled Node.js: ${command}`);
+        logger.nodeApp.debug('Using Local bundled Node.js', { execPath: command });
       }
 
-      // Build environment variables
-      let env: Record<string, string> = {
-        ...process.env,
-        PORT: app.port?.toString() || '3000',
-        NODE_ENV: 'development',
-        // Enable Node.js mode in Electron (required for process.execPath)
-        ELECTRON_RUN_AS_NODE: '1'
-      };
+      // Build environment variables from allowlist (security: don't inherit full parent env)
+      // Only essential system variables are inherited
+      const ALLOWED_PARENT_ENV = ['PATH', 'HOME', 'USER', 'SHELL', 'LANG', 'TERM', 'TMPDIR'];
+      let env: Record<string, string> = {};
+
+      // Copy only allowed parent env vars
+      for (const key of ALLOWED_PARENT_ENV) {
+        if (process.env[key]) {
+          env[key] = process.env[key]!;
+        }
+      }
+
+      // Add required app env vars
+      env.PORT = app.port?.toString() || '3000';
+      env.NODE_ENV = 'development';
+      // Enable Node.js mode in Electron (required for process.execPath)
+      env.ELECTRON_RUN_AS_NODE = '1';
 
       // Inject WordPress environment variables if enabled
       if (app.injectWpEnv) {
@@ -506,7 +597,7 @@ export class NodeAppManager {
 
           // Log successful extraction (sanitized)
           const sanitizedWpEnv = WordPressEnvManager.sanitizeForLogging(wpEnv);
-          console.log(`[NodeAppManager] Injecting WordPress environment variables for ${app.name}:`, sanitizedWpEnv);
+          logger.nodeApp.info('Injecting WordPress environment variables', { appName: app.name, wpEnv: sanitizedWpEnv });
 
           // Merge WordPress env vars with app env
           env = {
@@ -516,8 +607,7 @@ export class NodeAppManager {
           };
         } catch (error: any) {
           // Log warning but continue - app can still run without WP env vars
-          console.warn(`[NodeAppManager] Failed to extract WordPress environment for ${app.name}:`, error.message);
-          console.warn(`[NodeAppManager] App will start without WordPress environment variables`);
+          logger.nodeApp.warn('Failed to extract WordPress environment, app will start without WP env vars', { appName: app.name, error: error.message });
 
           // Still merge app-specific env vars
           env = {
@@ -544,7 +634,7 @@ export class NodeAppManager {
       const logFile = path.join(logsDir, `${appId}.log`);
 
       // Log the path for debugging
-      console.log(`[NodeAppManager] Creating log file: ${logFile}`);
+      logger.nodeApp.debug('Creating log file', { logFile });
 
       const logStream = fs.createWriteStream(logFile, { flags: 'a' });
 
@@ -572,8 +662,8 @@ export class NodeAppManager {
         logStream.write(`WARNING: Process spawned but no PID assigned\n`);
       }
 
-      // Store process reference
-      this.runningProcesses.set(appId, child);
+      // Store process and log stream reference for proper cleanup
+      this.runningProcesses.set(appId, { child, logStream });
 
       // Handle stdout
       child.stdout?.on('data', (data) => {
@@ -590,8 +680,8 @@ export class NodeAppManager {
         const exitMessage = `\n=== Process exited at ${new Date().toISOString()} ===\nExit code: ${code}\nSignal: ${signal}\n`;
         logStream.write(exitMessage);
 
-        // Log to console for debugging
-        console.log(`[NodeAppManager] App ${app.name} (${appId}) exited with code ${code}, signal: ${signal}`);
+        // Log process exit
+        logger.nodeApp.info('App process exited', { appName: app.name, appId, exitCode: code, signal });
 
         logStream.end();
 
@@ -605,9 +695,9 @@ export class NodeAppManager {
             updatedApp.pid = undefined;
             updatedApp.lastError = code !== 0 ? `Process exited with code ${code}` : undefined;
             await this.configManager.saveApp(siteId, sitePath, updatedApp);
-            console.log(`[NodeAppManager] Exit handler updated status to stopped for ${app.name}`);
+            logger.nodeApp.debug('Exit handler updated status to stopped', { appName: app.name });
           } else {
-            console.log(`[NodeAppManager] Exit handler skipping status update (app is being stopped by stopApp)`);
+            logger.nodeApp.debug('Exit handler skipping status update (app is being stopped by stopApp)');
           }
         }
       });
@@ -617,8 +707,8 @@ export class NodeAppManager {
         const errorMessage = `\n=== Process ERROR at ${new Date().toISOString()} ===\nError: ${error.message}\nStack: ${error.stack}\n`;
         logStream.write(errorMessage);
 
-        // Log to console for debugging
-        console.error(`[NodeAppManager] App ${app.name} (${appId}) error:`, error);
+        // Log process error
+        logger.nodeApp.error('App process error', { appName: app.name, appId, error: error.message });
 
         logStream.end();
 
@@ -664,66 +754,51 @@ export class NodeAppManager {
     await this.configManager.saveApp(siteId, sitePath, app);
 
     // Stop the process if we're managing it
-    const child = this.runningProcesses.get(appId);
-    if (child && child.pid) {
-      return new Promise((resolve, reject) => {
-        // Kill entire process tree to ensure cleanup of child processes
-        treeKill(child.pid!, 'SIGTERM', (error: any) => {
-          if (error) {
-            console.log(`[NodeAppManager] SIGTERM failed, trying SIGKILL for ${appId}`);
-            // Try force kill if graceful termination fails
-            treeKill(child.pid!, 'SIGKILL', (_killError: any) => {
-              this.runningProcesses.delete(appId);
-              // Get fresh app data to avoid stale state
-              this.configManager.getApp(siteId, sitePath, appId)
-                .then((freshApp) => {
-                  if (freshApp) {
-                    freshApp.status = 'stopped';
-                    freshApp.pid = undefined;
-                    return this.configManager.saveApp(siteId, sitePath, freshApp);
-                  }
-                  return Promise.resolve();
-                })
-                .then(() => {
-                  console.log(`[NodeAppManager] App ${appId} stopped (SIGKILL)`);
-                  // Return the original app object with updated status
-                  app.status = 'stopped';
-                  app.pid = undefined;
-                  resolve(app);
-                })
-                .catch((saveError) => {
-                  console.error(`[NodeAppManager] Error saving stopped app:`, saveError);
-                  reject(saveError);
-                });
-            });
-          } else {
-            console.log(`[NodeAppManager] App ${appId} stopped successfully (SIGTERM)`);
-            this.runningProcesses.delete(appId);
-            // Get fresh app data to avoid stale state
-            this.configManager.getApp(siteId, sitePath, appId)
-              .then((freshApp) => {
-                if (freshApp) {
-                  freshApp.status = 'stopped';
-                  freshApp.pid = undefined;
-                  return this.configManager.saveApp(siteId, sitePath, freshApp);
-                }
-                return Promise.resolve();
-              })
-              .then(() => {
-                // Return the original app object with updated status
-                app.status = 'stopped';
-                app.pid = undefined;
-                resolve(app);
-              })
-              .catch((saveError) => {
-                console.error(`[NodeAppManager] Error saving stopped app:`, saveError);
-                reject(saveError);
-              });
-          }
-        });
-      });
+    const managed = this.runningProcesses.get(appId);
+    if (managed && managed.child.pid) {
+      // Helper to clean up resources
+      const cleanupResources = () => {
+        // End the log stream if it's still writable
+        if (managed.logStream && !managed.logStream.destroyed) {
+          managed.logStream.write(`\n=== Process stopped by stopApp at ${new Date().toISOString()} ===\n`);
+          managed.logStream.end();
+        }
+        this.runningProcesses.delete(appId);
+      };
+
+      try {
+        // Try graceful SIGTERM with timeout
+        await treeKillWithTimeout(managed.child.pid, 'SIGTERM');
+        logger.nodeApp.info('App stopped successfully (SIGTERM)', { appId });
+      } catch (sigtermError) {
+        // SIGTERM failed or timed out, try force kill
+        logger.nodeApp.warn('SIGTERM failed or timed out, trying SIGKILL', { appId, error: (sigtermError as Error).message });
+        try {
+          await treeKillWithTimeout(managed.child.pid, 'SIGKILL', 3000); // Shorter timeout for SIGKILL
+          logger.nodeApp.info('App stopped (SIGKILL)', { appId });
+        } catch (sigkillError) {
+          // Even SIGKILL failed - log but continue with cleanup
+          logger.nodeApp.error('SIGKILL failed', { appId, error: (sigkillError as Error).message });
+        }
+      }
+
+      // Clean up resources regardless of kill result
+      cleanupResources();
+
+      // Update app status
+      const freshApp = await this.configManager.getApp(siteId, sitePath, appId);
+      if (freshApp) {
+        freshApp.status = 'stopped';
+        freshApp.pid = undefined;
+        await this.configManager.saveApp(siteId, sitePath, freshApp);
+      }
+
+      // Return the original app object with updated status
+      app.status = 'stopped';
+      app.pid = undefined;
+      return app;
     } else {
-      console.log(`[NodeAppManager] No running process for ${appId}, just updating status`);
+      logger.nodeApp.debug('No running process, just updating status', { appId });
       // No running process, just update status
       app.status = 'stopped';
       app.pid = undefined;
@@ -809,24 +884,27 @@ export class NodeAppManager {
   }
 
   /**
-   * Detect package manager from lockfiles
+   * Detect package manager from lockfiles (parallelized for performance)
    */
   private async detectPackageManager(appPath: string): Promise<'npm' | 'yarn' | 'pnpm' | 'bun'> {
-    // Check for lockfiles in order of preference
-    if (await fs.pathExists(path.join(appPath, 'bun.lockb'))) {
-      return 'bun';
-    }
+    // Define lockfiles in priority order (bun > pnpm > yarn > npm)
+    const lockfiles: Array<{ file: string; manager: 'npm' | 'yarn' | 'pnpm' | 'bun' }> = [
+      { file: 'bun.lockb', manager: 'bun' },
+      { file: 'pnpm-lock.yaml', manager: 'pnpm' },
+      { file: 'yarn.lock', manager: 'yarn' }
+    ];
 
-    if (await fs.pathExists(path.join(appPath, 'pnpm-lock.yaml'))) {
-      return 'pnpm';
-    }
+    // Check all lockfiles in parallel for better performance
+    const checks = await Promise.all(
+      lockfiles.map(async ({ file, manager }) => ({
+        exists: await fs.pathExists(path.join(appPath, file)),
+        manager
+      }))
+    );
 
-    if (await fs.pathExists(path.join(appPath, 'yarn.lock'))) {
-      return 'yarn';
-    }
-
-    // Default to npm
-    return 'npm';
+    // Return first matching manager (respects priority order)
+    const found = checks.find(c => c.exists);
+    return found?.manager ?? 'npm';
   }
 
   /**
@@ -858,8 +936,8 @@ export class NodeAppManager {
       }
 
       return undefined;
-    } catch (error) {
-      console.error('[NodeAppManager] Error detecting build command:', error);
+    } catch (error: any) {
+      logger.nodeApp.error('Error detecting build command', { error: error.message });
       return undefined;
     }
   }
