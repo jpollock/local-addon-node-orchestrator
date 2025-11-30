@@ -4,7 +4,7 @@
  */
 
 import { z } from 'zod';
-import { PluginConfigSchema } from '../lib/schemas/nodeOrchestratorConfig';
+import { PluginConfigSchema } from '@local-labs/local-addon-api';
 
 /**
  * Site ID validation - Local uses string site IDs (not UUIDs)

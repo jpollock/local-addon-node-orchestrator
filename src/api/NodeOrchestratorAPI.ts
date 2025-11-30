@@ -6,17 +6,19 @@
 import * as Local from '@getflywheel/local';
 import * as LocalMain from '@getflywheel/local/main';
 import { NodeAppManager, InstallProgress } from '../lib/NodeAppManager';
-import { WordPressPluginManager, PluginInstallProgress } from '../lib/wordpress/WordPressPluginManager';
-import { ConfigManager } from '../lib/ConfigManager';
-import { GitManager } from '../lib/GitManager';
-import { WpCliManager } from '../lib/wordpress/WpCliManager';
+import {
+  WordPressPluginManager,
+  ConfigManager,
+  GitManager,
+  WpCliManager
+} from '@local-labs/local-addon-api';
+import type { PluginInstallProgress, GitProgressEvent } from '@local-labs/local-addon-api';
 import {
   NodeApp,
   AddAppRequest,
   PluginConfigInput,
   WordPressPlugin
 } from '../types';
-import { GitProgressEvent } from '../lib/GitManager';
 
 /**
  * Configuration for adding a Node app

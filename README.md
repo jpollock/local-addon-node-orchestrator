@@ -41,6 +41,15 @@ Run Node.js applications alongside your WordPress sites in Local. Clone apps fro
 
 ## Architecture
 
+### Shared Library
+
+This addon uses the `@local-labs/local-addon-api` library, which provides shared utilities for Local addon development:
+
+- **Managers**: GitManager, ConfigManager, WordPressPluginManager, WordPressEnvManager
+- **Utilities**: Logger, timeout helpers, safe environment handling, error utilities
+- **Validation**: Command validation, path validation, security schemas
+- **WordPress Integration**: WP-CLI wrapper, plugin detection, environment variable extraction
+
 ### Security-First Design
 
 This addon implements a **4-layer security architecture** to protect against common vulnerabilities:
@@ -84,29 +93,26 @@ This addon implements a **4-layer security architecture** to protect against com
 
 1. **Main Process** (src/main-full.ts)
    - IPC handler registration with validation
-   - Git repository management
+   - Git repository management (via library)
    - Process lifecycle control
    - Environment configuration
    - Port allocation
 
-2. **Lightning Service** (src/services/NodeOrchestratorService.ts)
+2. **Node App Manager** (src/lib/NodeAppManager.ts)
+   - Core app lifecycle management
    - Secure Node.js process spawning
-   - Health monitoring
+   - Health monitoring and restart logic
    - Log streaming
-   - Restart on failure
-   - Resource management
 
-3. **Renderer UI** (src/components/)
-   - App configuration interface
-   - Log viewer
-   - Status monitoring
-   - Environment variable editor
+3. **API Layer** (src/api/)
+   - IPC request/response handling
+   - Request validation
+   - Response formatting
 
 4. **Security Layer** (src/security/)
-   - Input validation (schemas.ts)
-   - Command validation (validation.ts)
-   - Path validation (validation.ts)
+   - Input validation schemas (schemas.ts)
    - Error sanitization (errors.ts)
+   - Command/path validation (via library)
 
 ### Data Structure
 

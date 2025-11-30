@@ -1,11 +1,8 @@
 import * as LocalMain from '@getflywheel/local/main';
 import * as Local from '@getflywheel/local';
 import { ipcMain } from 'electron';
-import { GitManager } from './lib/GitManager';
+import { GitManager, ConfigManager, WpCliManager, WordPressPluginManager } from '@local-labs/local-addon-api';
 import { NodeAppManager } from './lib/NodeAppManager';
-import { ConfigManager } from './lib/ConfigManager';
-import { WpCliManager } from './lib/wordpress/WpCliManager';
-import { WordPressPluginManager } from './lib/wordpress/WordPressPluginManager';
 import {
   AddAppRequestSchema,
   StartAppRequestSchema,
@@ -23,8 +20,7 @@ import {
   validate
 } from './security/schemas';
 import { logAndSanitizeError } from './security/errors';
-import { initializeLogger, logger } from './utils/logger';
-import { withTimeout, TIMEOUTS } from './utils/timeout';
+import { initializeLogger, logger, withTimeout, TIMEOUTS } from '@local-labs/local-addon-api';
 
 export default function (context: LocalMain.AddonMainContext): void {
   const { localLogger, siteData, siteProcessManager, siteDatabase, ports, wpCli } = LocalMain.getServiceContainer().cradle;
@@ -32,7 +28,7 @@ export default function (context: LocalMain.AddonMainContext): void {
   // Initialize centralized logger with Local's logger
   initializeLogger(localLogger);
 
-  logger.main.info('Main addon loading...', { hooks: Object.keys(context.hooks || {}) });
+  logger.core.info('Main addon loading...', { hooks: Object.keys(context.hooks || {}) });
 
   // Initialize managers
   const configManager = new ConfigManager();
@@ -41,7 +37,7 @@ export default function (context: LocalMain.AddonMainContext): void {
   const pluginManager = new WordPressPluginManager(gitManager, wpCliManager);
   const appManager = new NodeAppManager(configManager, gitManager, ports, pluginManager, siteProcessManager, siteDatabase);
 
-  logger.main.info('Managers initialized');
+  logger.core.info('Managers initialized');
 
   // Site lifecycle hooks
   context.hooks.addAction('siteStarted', async (site: Local.Site) => {

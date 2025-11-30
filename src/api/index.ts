@@ -27,5 +27,4 @@ export type {
 
 // Progress types
 export type { InstallProgress } from '../lib/NodeAppManager';
-export type { PluginInstallProgress } from '../lib/wordpress/WordPressPluginManager';
-export type { GitProgressEvent } from '../lib/GitManager';
+export type { PluginInstallProgress, GitProgressEvent } from '@local-labs/local-addon-api';

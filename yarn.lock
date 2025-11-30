@@ -687,6 +687,15 @@
   resolved "https://registry.npmjs.org/@kwsites/promise-deferred/-/promise-deferred-1.1.1.tgz"
   integrity sha512-GaHYm+c0O9MjZRu0ongGBRbinu8gVAMd2UZjji6jVmqKtZluZnptXGWhz1E8j8D2HJ3f/yMxKAUC0b+57wncIw==
 
+"@local-labs/local-addon-api@file:../local-addon-api":
+  version "1.0.0"
+  resolved "file:../local-addon-api"
+  dependencies:
+    extract-zip "^2.0.1"
+    fs-extra "^11.2.0"
+    simple-git "^3.30.0"
+    zod "^3.25.76"
+
 "@nodelib/fs.scandir@2.1.5":
   version "2.1.5"
   resolved "https://registry.npmjs.org/@nodelib/fs.scandir/-/fs.scandir-2.1.5.tgz"

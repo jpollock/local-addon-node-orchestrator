@@ -68,33 +68,40 @@ local-addon-node-orchestrator/
 ├── src/
 │   ├── main-full.ts          # Main process entry point
 │   ├── renderer.tsx          # Renderer entry point
-│   ├── types.ts              # TypeScript interfaces
+│   ├── types.ts              # TypeScript interfaces (re-exports from library)
+│   ├── constants.ts          # Application constants
+│   ├── api/
+│   │   ├── index.ts          # API exports
+│   │   └── NodeOrchestratorAPI.ts  # IPC request handlers
 │   ├── lib/
 │   │   ├── NodeAppManager.ts # Core app lifecycle management
-│   │   ├── GitManager.ts     # Git cloning with progress
-│   │   ├── ConfigManager.ts  # JSON config persistence
-│   │   ├── PortManager.ts    # Port allocation (3000-3999)
-│   │   ├── NpmManager.ts     # Hybrid npm support
-│   │   └── wordpress/        # WordPress integration
-│   │       ├── WordPressPluginManager.ts
-│   │       ├── WpCliManager.ts
-│   │       ├── WordPressEnvManager.ts
-│   │       ├── ZipPluginInstaller.ts
-│   │       └── BundledPluginDetector.ts
+│   │   └── NpmManager.ts     # Hybrid npm support
 │   ├── security/
-│   │   ├── schemas.ts        # Zod validation schemas
-│   │   ├── validation.ts     # Command/path validation
+│   │   ├── schemas.ts        # Zod validation schemas (imports from library)
 │   │   └── errors.ts         # Error sanitization
-│   └── utils/
-│       ├── logger.ts         # Winston logging
-│       ├── timeout.ts        # Promise timeout wrapper
-│       ├── safeEnv.ts        # Safe environment vars
-│       └── errorUtils.ts     # Error handling utilities
-├── tests/                    # Test suites
-│   ├── unit/
-│   └── integration/
+│   └── __tests__/            # Test suites
+│       ├── setup.ts          # Jest setup
+│       ├── main.test.ts      # Main process tests
+│       └── renderer.test.tsx # Renderer tests
+├── tests/
+│   └── __mocks__/            # Test mocks
 └── lib/                      # Compiled JavaScript (git-ignored)
 ```
+
+### Shared Library Dependency
+
+This addon uses `@local-labs/local-addon-api` for shared functionality:
+
+| Module | Provided By Library |
+|--------|---------------------|
+| GitManager | Git cloning with progress callbacks |
+| ConfigManager | JSON config persistence |
+| WordPressPluginManager | WordPress plugin installation |
+| WordPressEnvManager | WP environment variable extraction |
+| WpCliManager | WP-CLI command execution |
+| BundledPluginDetector | Detect plugins in .nodeorchestrator.json |
+| Logger | Winston-based logging with namespaces |
+| Validation | Command/path validation utilities |
 
 ## Key Technical Patterns
 
@@ -223,8 +230,12 @@ function validatePath(basePath: string, targetPath: string): PathValidationResul
 
 ### 4. WordPress Integration Patterns
 
+All WordPress integration is provided by the `@local-labs/local-addon-api` library.
+
 **Environment Variable Injection**:
 ```typescript
+import { WordPressEnvManager, getSafeEnv } from '@local-labs/local-addon-api';
+
 // WordPressEnvManager extracts vars from wp-config.php
 const wpEnv = await wordPressEnvManager.getWordPressEnvVars(site);
 
@@ -240,6 +251,8 @@ spawn(command, args, { env, cwd: appPath, shell: false });
 
 **WP-CLI Integration**:
 ```typescript
+import { WpCliManager } from '@local-labs/local-addon-api';
+
 // WpCliManager wraps Local's WP-CLI binary
 const users = await wpCliManager.run(site, [
   'user', 'list',
@@ -250,15 +263,16 @@ const users = await wpCliManager.run(site, [
 
 **Plugin Installation**:
 ```typescript
+import {
+  BundledPluginDetector,
+  WordPressPluginManager
+} from '@local-labs/local-addon-api';
+
 // Detects plugins from .nodeorchestrator.json
 const config = await bundledPluginDetector.detectPlugins(appPath);
 
 for (const plugin of config.wpPlugins) {
-  if (plugin.source === 'git') {
-    await wordPressPluginManager.installFromGit(site, plugin);
-  } else if (plugin.source === 'zip') {
-    await zipPluginInstaller.installFromZip(plugin.zipPath, targetPath);
-  }
+  await wordPressPluginManager.installPlugin(site, plugin);
 }
 ```
 
@@ -432,6 +446,8 @@ Return: { success: true, app }
 
 1. Create `src/lib/NewManager.ts`:
    ```typescript
+   import { ConfigManager } from '@local-labs/local-addon-api';
+
    export class NewManager {
      constructor(private configManager: ConfigManager) {}
 
@@ -443,16 +459,27 @@ Return: { success: true, app }
 
 2. Instantiate in main and inject dependencies.
 
-### Add WordPress Integration
+### Use WordPress Integration
 
-1. Create module in `src/lib/wordpress/`:
-   ```typescript
-   export class NewWpFeature {
-     async processFeature(site: Local.Site): Promise<void> {
-       // Use wpCliManager or direct file operations
-     }
-   }
-   ```
+WordPress features are provided by the `@local-labs/local-addon-api` library:
+
+```typescript
+import {
+  WpCliManager,
+  WordPressEnvManager,
+  WordPressPluginManager,
+  BundledPluginDetector
+} from '@local-labs/local-addon-api';
+
+// Run WP-CLI commands
+const result = await wpCliManager.run(site, ['option', 'get', 'siteurl']);
+
+// Get WordPress environment variables
+const wpEnv = await wordPressEnvManager.getWordPressEnvVars(site);
+
+// Install a WordPress plugin
+await wordPressPluginManager.installPlugin(site, pluginConfig);
+```
 
 ## Building & Testing
 
@@ -511,15 +538,15 @@ npm test -- --coverage
 
 | Package | Purpose |
 |---------|---------|
+| `@local-labs/local-addon-api` | Shared library for Local addon utilities |
 | `@getflywheel/local-components` | Local's UI components |
 | `fs-extra` | Enhanced file operations |
 | `npm` | Bundled npm fallback |
-| `simple-git` | Git operations |
 | `tree-kill` | Process tree termination |
 | `uuid` | Generate app IDs |
-| `winston` | Logging |
 | `zod` | Schema validation |
-| `extract-zip` | Zip extraction |
+
+**Note**: Many utilities (GitManager, ConfigManager, logger, WordPress integration) are now provided by `@local-labs/local-addon-api`.
 
 ### Development
 

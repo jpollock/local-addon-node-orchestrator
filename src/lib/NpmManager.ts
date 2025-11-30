@@ -12,8 +12,7 @@ import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
 import * as fs from 'fs-extra';
-import { logger } from '../utils/logger';
-import { getSafeEnv } from '../utils/safeEnv';
+import { logger, getSafeEnv } from '@local-labs/local-addon-api';
 
 const execAsync = promisify(exec);
 

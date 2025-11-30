@@ -6,21 +6,36 @@ jest.mock('electron', () => ({
 }));
 
 // Mock internal modules to prevent initialization side effects
-jest.mock('../lib/GitManager');
 jest.mock('../lib/NodeAppManager');
-jest.mock('../lib/ConfigManager');
-jest.mock('../lib/wordpress/WpCliManager');
-jest.mock('../lib/wordpress/WordPressPluginManager');
-jest.mock('../utils/logger', () => ({
-  initializeLogger: jest.fn(),
-  logger: {
-    main: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
-    nodeApp: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
-    wpPlugin: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
-    git: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
-    ipc: { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
-  }
-}));
+
+// Mock library modules
+jest.mock('@local-labs/local-addon-api', () => {
+  // Create a mock Zod-like schema that supports .and() and other methods
+  const mockSchema: any = {
+    and: jest.fn(() => mockSchema),
+    or: jest.fn(() => mockSchema),
+    optional: jest.fn(() => mockSchema),
+    parse: jest.fn(),
+    safeParse: jest.fn().mockReturnValue({ success: true, data: {} }),
+  };
+
+  return {
+    GitManager: jest.fn(),
+    ConfigManager: jest.fn(),
+    WpCliManager: jest.fn(),
+    WordPressPluginManager: jest.fn(),
+    initializeLogger: jest.fn(),
+    logger: {
+      core: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      node: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      wpPlugin: { info: jest.fn(), warn: jest.fn(), error: jest.fn(), debug: jest.fn() },
+      git: { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+    },
+    withTimeout: jest.fn((promise) => promise),
+    TIMEOUTS: { DATABASE_READY: 30000 },
+    PluginConfigSchema: mockSchema,
+  };
+});
 
 // Mock Local services - must be a factory function
 jest.mock('@getflywheel/local/main', () => ({
@@ -91,7 +106,7 @@ describe('Node.js Orchestrator Main Process (Full Version)', () => {
     });
 
     it('should initialize logger with Local logger service', () => {
-      const { initializeLogger } = require('../utils/logger');
+      const { initializeLogger } = require('@local-labs/local-addon-api');
 
       mainFunction(mockContext);
 

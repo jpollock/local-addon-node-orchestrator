@@ -9,7 +9,8 @@ import type React from 'react';
  * Local's hook registration interface for renderer plugins
  */
 export interface LocalHooks {
-  addContent(hookName: string, component: React.ComponentType<LocalSiteProps>): void;
+  // Local passes site directly to hook callbacks, not wrapped in props
+  addContent(hookName: string, callback: (site: Local.Site) => React.ReactNode): void;
   addFilter?(filterName: string, callback: (value: unknown) => unknown): void;
   getContentAreas?(): string[];
 }
@@ -181,17 +182,15 @@ export function err<E = string>(error: E): ErrorResult<E> {
   return { success: false, error };
 }
 
-// Re-export config types from schema
+// Re-export config types from library
 export type {
   PluginConfig,
   BundledPluginConfig,
   GitPluginConfig,
   ZipPluginConfig,
   WpOrgPluginConfig,
-  NodeConfig,
-  WordPressConfig,
   NodeOrchestratorConfig,
-} from './lib/schemas/nodeOrchestratorConfig';
+} from '@local-labs/local-addon-api';
 
 /**
  * Plugin config input type - allows optional autoActivate

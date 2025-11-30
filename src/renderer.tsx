@@ -34,10 +34,8 @@ interface IPCResponse {
 export default function (context: RendererContext): void {
   const { React, hooks } = context;
 
-  const NodeAppsInfo = (props: LocalSiteProps) => {
-    // Extract site from props
-    const site = props.site;
-
+  // Local passes site directly to hook callbacks, not wrapped in props
+  const NodeAppsInfo = (site: LocalSiteProps['site']) => {
     // Check if we have valid site data
     if (!site || !site.id) {
       return null; // Don't show anything if no site data
@@ -597,38 +595,6 @@ export default function (context: RendererContext): void {
     return React.createElement(NodeAppsManager, { site });
   };
 
-  // Try ALL possible hook locations
-  const possibleHooks = [
-    'SiteInfoOverview',
-    'SiteInfoOverview_Top',
-    'SiteInfoOverview_Bottom',
-    'SiteInfo',
-    'SiteInfoSidebar',
-    'SiteDetails',
-    'SiteOverview',
-    'sitesListItem',
-    'belowSitesList',
-    'aboveSitesList',
-    'main',
-    'content'
-  ];
-
-  possibleHooks.forEach(hookName => {
-    try {
-      hooks.addContent(hookName, NodeAppsInfo);
-    } catch (e) {
-      // Silent fail for non-existent hooks
-    }
-  });
-
-  // Also try addFilter if it exists
-  if (hooks.addFilter) {
-    try {
-      hooks.addFilter('siteInfoTabs', (tabs: unknown) => {
-        return tabs;
-      });
-    } catch (e) {
-      // Silent fail - addFilter may not be available
-    }
-  }
+  // Register in the site overview section
+  hooks.addContent('SiteInfoOverview', NodeAppsInfo);
 }

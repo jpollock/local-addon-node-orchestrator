@@ -63,19 +63,25 @@ describe('Node.js Orchestrator Renderer', () => {
       NodeAppsInfo = mockHooks.addContent.mock.calls[0][1];
     });
 
-    it('should return null when site is not provided', () => {
-      const result = NodeAppsInfo({ site: null });
+    it('should return null when site is null', () => {
+      const result = NodeAppsInfo(null as any);
       expect(result).toBeNull();
     });
 
     it('should return null when site is undefined', () => {
-      const result = NodeAppsInfo({});
+      const result = NodeAppsInfo(undefined as any);
+      expect(result).toBeNull();
+    });
+
+    it('should return null when site has no id', () => {
+      const result = NodeAppsInfo({} as any);
       expect(result).toBeNull();
     });
 
     it('should render NodeAppsManager component when site is provided', () => {
       const mockSite = { id: 'site-123', name: 'Test Site' };
-      const result = NodeAppsInfo({ site: mockSite });
+      // Local passes site directly to hook callbacks
+      const result = NodeAppsInfo(mockSite as any);
 
       expect(result).toBeDefined();
       expect(result.type).toBeDefined();
@@ -91,7 +97,8 @@ describe('Node.js Orchestrator Renderer', () => {
       rendererFunction(mockContext);
       const NodeAppsInfo = mockHooks.addContent.mock.calls[0][1];
       mockSite = { id: 'site-123', name: 'Test Site' };
-      const element = NodeAppsInfo({ site: mockSite });
+      // Local passes site directly to hook callbacks
+      const element = NodeAppsInfo(mockSite as any);
       NodeAppsManager = element.type;
     });
 
@@ -221,7 +228,8 @@ describe('Node.js Orchestrator Renderer', () => {
       const NodeAppsInfo = mockHooks.addContent.mock.calls[0][1];
 
       const mockSite = { id: 'site-456', name: 'Integration Test Site' };
-      const element = NodeAppsInfo({ site: mockSite });
+      // Local passes site directly to hook callbacks
+      const element = NodeAppsInfo(mockSite as any);
       const NodeAppsManager = element.type;
 
       const instance = new NodeAppsManager({ site: mockSite });
